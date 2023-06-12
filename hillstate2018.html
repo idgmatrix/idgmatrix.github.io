@@ -879,10 +879,21 @@ void main( void )
 		sndWhite.mediaGroup = "bgm";
 		sndBlack.mediaGroup = "bgm";
 				
-		sndBlue.play();
+		sndBlue.muted = true;
+		sndRed.muted = true;
+		sndWhite.muted = true;
+		sndBlack.muted = true;
+	    
+	    	sndBlue.play();
 		sndRed.play();
 		sndWhite.play();
 		sndBlack.play();
+
+	    	sndBlue.muted = false;
+		sndRed.muted = false;
+		sndWhite.muted = false;
+		sndBlack.muted = false;
+	    
 		
 	}
 
@@ -891,7 +902,7 @@ void main( void )
 
 </head>
 
-<body onload="webGLStart();", allow="autoplay">
+<body onload="webGLStart();" allow="autoplay">
 
 	<canvas id="webgl-canvas" style="border: none;" width="960" height="540"></canvas>
 </body>
