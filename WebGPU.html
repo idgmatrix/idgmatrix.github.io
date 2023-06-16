@@ -11,90 +11,50 @@
   </style>
 </head>
 <body>
-  <canvas id="webgpuCanvas"></canvas>
-  <script>
-    async function init() {
-      const canvas = document.getElementById("webgpuCanvas");
-      const adapter = await navigator.gpu.requestAdapter();
-      const device = await adapter.requestDevice();
+<canvas id="canvas" width="512" height="512"></canvas>
+<script type="module">
+  const adapter = await navigator.gpu.requestAdapter();
+  const device = await adapter.requestDevice();
 
-      const context = canvas.getContext('gpupresent');
-      
-      const swapChainDescriptor = {
-        device,
-        format: 'bgra8unorm',
-      };
-      
-      const swapChain = context.configureSwapChain(swapChainDescriptor);
+  const context = canvas.getContext("webgpu");
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({ device, format });
 
-      const shaderModuleDescriptor = {
-        code: `[[stage(vertex)]]
-        fn main([[builtin(vertex_index)]] VertexIndex: u32) -> [[builtin(position)]] vec4<f32> {
-          var pos: array<vec2<f32>, 3> = array<vec2<f32>, 3>(
-            vec2<f32>(0.0, 0.5),
-            vec2<f32>(-0.5, -0.5),
-            vec2<f32>(0.5, -0.5));
-          return vec4<f32>(pos[VertexIndex], 0.0, 1.0);
-        }
-
-        [[stage(fragment)]]
-        fn main() -> [[location(0)]] vec4<f32> {
-          return vec4<f32>(1.0, 0.0, 0.0, 1.0);
-        }`,
-      };
-      
-      const shaderModule = device.createShaderModule(shaderModuleDescriptor);
-
-      const pipelineDescriptor = {
-        vertex: {
-          module: shaderModule,
-          entryPoint: 'main',
-        },
-        fragment: {
-          module: shaderModule,
-          entryPoint: 'main',
-          targets: [
-            {
-              format: 'bgra8unorm',
-            },
-          ],
-        },
-        primitive: {
-          topology: 'triangle-list',
-        },
-      };
-
-      const pipeline = device.createRenderPipeline(pipelineDescriptor);
-
-      function frame() {
-        const commandEncoderDescriptor = {};
-        const commandEncoder = device.createCommandEncoder(commandEncoderDescriptor);
-        
-        const textureView = swapChain.getCurrentTexture().createView();
-        const renderPassDescriptor = {
-          colorAttachments: [
-            {
-              view: textureView,
-              loadValue: [0, 0, 0, 1],
-              storeOp: 'store',
-            },
-          ],
-        };
-        
-        const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-        passEncoder.setPipeline(pipeline);
-        passEncoder.draw(3, 1, 0, 0);
-        passEncoder.endPass();
-
-        device.queue.submit([commandEncoder.finish()]);
-        
-        requestAnimationFrame(frame);
-      }
-      
-      requestAnimationFrame(frame);
+  const code = `
+    @vertex fn vertexMain(@builtin(vertex_index) i : u32) ->
+      @builtin(position) vec4f {
+       const pos = array(vec2f(0, 1), vec2f(-1, -1), vec2f(1, -1));
+       return vec4f(pos[i], 0, 1);
     }
-
-    init();
-  </script>
+    @fragment fn fragmentMain() -> @location(0) vec4f {
+      return vec4f(1, 0, 0, 1);
+    }`;
+  const shaderModule = device.createShaderModule({ code });
+  const pipeline = device.createRenderPipeline({
+    layout: "auto",
+    vertex: {
+      module: shaderModule,
+      entryPoint: "vertexMain",
+    },
+    fragment: {
+      module: shaderModule,
+      entryPoint: "fragmentMain",
+      targets: [{ format }],
+    },
+  });
+  const commandEncoder = device.createCommandEncoder();
+  const colorAttachments = [
+    {
+      view: context.getCurrentTexture().createView(),
+      loadOp: "clear",
+      storeOp: "store",
+    },
+  ];
+  const passEncoder = commandEncoder.beginRenderPass({ colorAttachments });
+  passEncoder.setPipeline(pipeline);
+  passEncoder.draw(3);
+  passEncoder.end();
+  device.queue.submit([commandEncoder.finish()]);
+</script>
 </body>
 </html>
