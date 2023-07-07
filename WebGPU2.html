@@ -50,7 +50,7 @@
           canvas.clientWidth * devicePixelRatio,
           canvas.clientHeight * devicePixelRatio,
         ];
-        const presentationFormat = context.getPreferredFormat(adapter);
+        const presentationFormat = context.getPreferredCanvasFormat(adapter);
 
         context.configure({
           device,
