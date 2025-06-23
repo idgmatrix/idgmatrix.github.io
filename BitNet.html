@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BitNet b1.58: 1.58비트 LLM 혁명 인포그래픽</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #001f3f; 
+        }
+        .chart-container {
+            position: relative;
+            margin: auto;
+            height: 300px;
+            width: 100%;
+            max-width: 600px;
+        }
+        .kicker-stat {
+            font-size: 3.5rem;
+            font-weight: 900;
+            line-height: 1;
+            color: #ffa600;
+        }
+        .kicker-label {
+            font-size: 1.125rem;
+            color: #f0f0f0;
+            margin-top: 0.5rem;
+        }
+        .flow-arrow {
+            font-size: 2rem;
+            color: #ffa600;
+            margin: 0 1rem;
+        }
+        .flow-box {
+            border: 2px solid #7a5195;
+            background-color: rgba(122, 81, 149, 0.1);
+        }
+        .comparison-box {
+            background-color: #003f5c;
+            border: 1px solid #7a5195;
+        }
+        .section-title {
+            color: #ffa600;
+        }
+    </style>
+</head>
+<body class="text-gray-200">
+
+    <div class="container mx-auto p-4 md:p-8">
+        
+        <header class="text-center mb-16">
+            <h1 class="text-4xl md:text-6xl font-black text-white mb-4">BitNet b1.58: 1.58비트 LLM 혁명</h1>
+            <p class="text-lg md:text-xl text-gray-300 max-w-3xl mx-auto">거대 언어 모델의 미래는 더 '작고', 더 '빠르고', 더 '효율적인' 것에 있습니다. 마이크로소프트의 BitNet이 어떻게 AI의 새로운 시대를 여는지 알아보세요.</p>
+        </header>
+
+        <section id="kpis" class="mb-20">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
+                <div class="bg-white/10 p-6 rounded-2xl shadow-lg">
+                    <p class="kicker-stat">71.4x</p>
+                    <p class="kicker-label">낮은 연산 에너지</p>
+                    <div class="chart-container h-48 w-48 mx-auto mt-4"><canvas id="energyChart"></canvas></div>
+                </div>
+                <div class="bg-white/10 p-6 rounded-2xl shadow-lg">
+                    <p class="kicker-stat">3.55x</p>
+                    <p class="kicker-label">적은 메모리 사용</p>
+                    <div class="chart-container h-48 w-48 mx-auto mt-4"><canvas id="memoryChart"></canvas></div>
+                </div>
+                <div class="bg-white/10 p-6 rounded-2xl shadow-lg">
+                    <p class="kicker-stat">2.71x</p>
+                    <p class="kicker-label">빠른 추론 속도</p>
+                    <div class="chart-container h-48 w-48 mx-auto mt-4"><canvas id="speedChart"></canvas></div>
+                </div>
+            </div>
+            <p class="text-center text-gray-400 mt-6 text-sm">30억 파라미터 모델 기준, 기존 FP16 LLaMA 모델과 비교 시</p>
+        </section>
+
+        <section id="how-it-works" class="mb-20">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl md:text-4xl font-bold section-title">핵심 원리 1: "1.58비트"는 어떻게 저장될까?</h2>
+                <p class="mt-4 max-w-3xl mx-auto">BitNet은 파라미터를 분수 비트로 저장하지 않습니다. 대신, 3가지 상태{-1, 0, 1}를 갖는 여러 파라미터를 묶어(Packing) 표준 비트 공간에 효율적으로 인코딩합니다. 이것이 바로 정보 이론적 한계인 1.58비트에 근접하는 비결입니다.</p>
+            </div>
+
+            <div class="bg-white/5 p-8 rounded-2xl shadow-2xl">
+                <h3 class="text-2xl font-bold text-center mb-6 text-white">3진 가중치 패킹 프로세스 (개념 예시)</h3>
+                <div class="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0">
+                    <div class="flex flex-col items-center">
+                        <p class="font-bold mb-2">3개의 3진 가중치</p>
+                        <div class="flow-box p-4 rounded-lg font-mono text-lg">(1, 0, -1)</div>
+                    </div>
+                    <div class="flow-arrow hidden md:block">→</div>
+                     <div class="flow-arrow block md:hidden">↓</div>
+                    <div class="flex flex-col items-center">
+                        <p class="font-bold mb-2">인코딩 및 압축</p>
+                        <div class="flow-box p-4 rounded-lg font-mono text-lg">부호-비부호 분할</div>
+                    </div>
+                    <div class="flow-arrow hidden md:block">→</div>
+                    <div class="flow-arrow block md:hidden">↓</div>
+                    <div class="flex flex-col items-center">
+                        <p class="font-bold mb-2">5비트로 저장</p>
+                        <div class="flow-box p-4 rounded-lg font-mono text-lg">00001</div>
+                    </div>
+                </div>
+                <p class="text-center mt-6 font-bold text-xl" style="color:#ff764a;">결과: 파라미터당 평균 1.67비트 (5비트 / 3개) 달성</p>
+            </div>
+        </section>
+        
+        <section id="computation" class="mb-20">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl md:text-4xl font-bold section-title">핵심 원리 2: "곱셈 없는" 행렬 연산</h2>
+                <p class="mt-4 max-w-3xl mx-auto">BitNet의 `BitLinear` 계층은 LLM의 가장 큰 연산 병목이었던 부동소수점 곱셈을 단순한 정수 덧셈/뺄셈으로 대체합니다. 이는 속도와 에너지 효율을 극적으로 향상시키는 핵심 혁신입니다.</p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="comparison-box p-6 rounded-2xl">
+                    <h3 class="text-2xl font-bold mb-4 text-center">기존 LLM (FP16)</h3>
+                    <div class="font-mono bg-black/30 p-4 rounded-lg text-center">
+                        <p>Weight * Activation</p>
+                        <p class="text-2xl my-4">0.7542 * 0.1298</p>
+                        <p class="text-xl">= 0.0979</p>
+                        <p class="mt-4 text-sm text-red-400">높은 비용의 부동소수점 곱셈</p>
+                    </div>
+                </div>
+                <div class="comparison-box p-6 rounded-2xl">
+                    <h3 class="text-2xl font-bold mb-4 text-center">BitNet (1.58-bit)</h3>
+                    <div class="font-mono bg-black/30 p-4 rounded-lg text-center">
+                        <p>Weight ∈ {-1, 0, 1}</p>
+                        <div class="text-2xl my-4">
+                            <span class="text-green-400">1 * 115  = +115</span><br>
+                            <span class="text-red-400">-1 * 115 = -115</span><br>
+                            <span class="text-gray-500">0 * 115  = 0</span>
+                        </div>
+                        <p class="mt-4 text-sm text-green-400">단순한 덧셈/뺄셈/무시</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="performance-charts" class="mb-20">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl md:text-4xl font-bold section-title">효율성과 성능, 두 마리 토끼를 잡다</h2>
+                <p class="mt-4 max-w-3xl mx-auto">BitNet은 극단적인 효율성에도 불구하고, 4조 개의 방대한 토큰으로 학습하여 기존 고정밀도 모델과 동등한 수준의 성능을 달성합니다.</p>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                <div class="bg-white/5 p-6 rounded-2xl shadow-2xl">
+                    <h3 class="text-xl font-bold text-center mb-4 text-white">모델별 메모리 사용량 비교 (GB)</h3>
+                    <div class="chart-container"><canvas id="memoryUsageChart"></canvas></div>
+                    <p class="text-sm text-center mt-4 text-gray-400">BitNet의 압도적인 메모리 효율성을 보여줍니다. (2B~3B 모델 기준)</p>
+                </div>
+                <div class="bg-white/5 p-6 rounded-2xl shadow-2xl">
+                    <h3 class="text-xl font-bold text-center mb-4 text-white">주요 벤치마크 성능 비교</h3>
+                    <div class="chart-container"><canvas id="benchmarkChart"></canvas></div>
+                    <p class="text-sm text-center mt-4 text-gray-400">BitNet은 추론, 코딩 등 핵심 능력에서 고정밀도 모델과 대등한 성능을 보입니다.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="ecosystem" class="mb-20">
+             <div class="text-center mb-12">
+                <h2 class="text-3xl md:text-4xl font-bold section-title">BitNet 생태계와 미래</h2>
+                <p class="mt-4 max-w-3xl mx-auto">BitNet의 잠재력을 완전히 실현하기 위해서는 소프트웨어, 하드웨어, 그리고 데이터가 함께 발전해야 합니다. 이는 AI 기술의 새로운 지평을 열 것입니다.</p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div class="bg-white/10 p-8 rounded-2xl text-center shadow-lg transform hover:scale-105 transition-transform duration-300">
+                    <div class="text-5xl mb-4">💻</div>
+                    <h3 class="text-2xl font-bold mb-2">소프트웨어: `bitnet.cpp`</h3>
+                    <p class="text-gray-300">1.58비트 연산을 기존 CPU에서 효율적으로 실행하기 위한 특수 추론 프레임워크. 최적화된 커널을 통해 BitNet의 속도 이점을 현실화합니다.</p>
+                </div>
+                <div class="bg-white/10 p-8 rounded-2xl text-center shadow-lg transform hover:scale-105 transition-transform duration-300">
+                    <div class="text-5xl mb-4">⚙️</div>
+                    <h3 class="text-2xl font-bold mb-2">하드웨어: 맞춤형 가속기</h3>
+                    <p class="text-gray-300">미래에는 1비트 연산에 최적화된 ASIC/FPGA가 등장할 것입니다. 이는 BitNet의 효율성을 하드웨어 수준에서 극대화할 것입니다.</p>
+                </div>
+                <div class="bg-white/10 p-8 rounded-2xl text-center shadow-lg transform hover:scale-105 transition-transform duration-300">
+                    <div class="text-5xl mb-4">📚</div>
+                    <h3 class="text-2xl font-bold mb-2">데이터: 4조 토큰 코퍼스</h3>
+                    <p class="text-gray-300">극단적인 양자화로 인한 정보 손실을 방대한 양의 데이터 학습으로 보완합니다. 이는 성능 유지를 위한 핵심 요소입니다.</p>
+                </div>
+            </div>
+        </section>
+
+        <footer class="text-center mt-16 pt-8 border-t border-gray-700">
+            <p class="text-gray-400">이 인포그래픽은 Microsoft의 BitNet b1.58 관련 연구 논문 및 자료를 기반으로 제작되었습니다.</p>
+            <p class="text-sm text-gray-500 mt-2">생성 날짜: 2025년 6월 23일</p>
+        </footer>
+
+    </div>
+
+<script>
+const processLabels = (labels) => {
+    const maxLength = 16;
+    return labels.map(label => {
+        if (label.length <= maxLength) {
+            return label;
+        }
+        const words = label.split(' ');
+        const lines = [];
+        let currentLine = '';
+        words.forEach(word => {
+            if ((currentLine + ' ' + word).trim().length > maxLength) {
+                lines.push(currentLine.trim());
+                currentLine = word;
+            } else {
+                currentLine = (currentLine + ' ' + word).trim();
+            }
+        });
+        lines.push(currentLine.trim());
+        return lines;
+    });
+};
+
+const tooltipTitleCallback = (tooltipItems) => {
+    const item = tooltipItems[0];
+    let label = item.chart.data.labels[item.dataIndex];
+    if (Array.isArray(label)) {
+      return label.join(' ');
+    } else {
+      return label;
+    }
+};
+
+const brilliantBlues = ['#003f5c', '#7a5195', '#ef5675', '#ffa600'];
+const brilliantBluesBg = ['rgba(0, 63, 92, 0.7)', 'rgba(122, 81, 149, 0.7)', 'rgba(239, 86, 117, 0.7)', 'rgba(255, 166, 0, 0.7)'];
+
+document.addEventListener('DOMContentLoaded', () => {
+    
+    const baseChartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            },
+            tooltip: {
+                callbacks: {
+                    title: tooltipTitleCallback
+                },
+                backgroundColor: '#001f3f',
+                titleFont: { size: 14, family: "'Noto Sans KR', sans-serif" },
+                bodyFont: { size: 12, family: "'Noto Sans KR', sans-serif" },
+                padding: 10,
+                cornerRadius: 8,
+                borderColor: '#ffa600',
+                borderWidth: 1
+            }
+        }
+    };
+
+    new Chart(document.getElementById('energyChart'), {
+        type: 'doughnut',
+        data: {
+            labels: ['BitNet 에너지', '기존 모델 에너지'],
+            datasets: [{
+                data: [1, 70.4],
+                backgroundColor: ['#ffa600', '#003f5c'],
+                borderColor: '#001f3f',
+                borderWidth: 4,
+                hoverOffset: 4
+            }]
+        },
+        options: {...baseChartOptions}
+    });
+
+    new Chart(document.getElementById('memoryChart'), {
+        type: 'doughnut',
+        data: {
+            labels: ['BitNet 메모리', '기존 모델 메모리'],
+            datasets: [{
+                data: [1, 2.55],
+                backgroundColor: ['#ef5675', '#003f5c'],
+                 borderColor: '#001f3f',
+                borderWidth: 4,
+                hoverOffset: 4
+            }]
+        },
+        options: {...baseChartOptions}
+    });
+
+    new Chart(document.getElementById('speedChart'), {
+        type: 'doughnut',
+        data: {
+            labels: ['BitNet 속도', '기존 모델 속도'],
+            datasets: [{
+                data: [2.71, 1],
+                backgroundColor: ['#7a5195', '#003f5c'],
+                 borderColor: '#001f3f',
+                borderWidth: 4,
+                hoverOffset: 4
+            }]
+        },
+        options: {...baseChartOptions}
+    });
+
+    const memoryLabels = ['BitNet b1.58 (2B)', 'Qwen2.5 1.5B (INT4)', 'LLaMA-3.2 (1B)', 'Qwen2.5 (1.5B)'];
+    new Chart(document.getElementById('memoryUsageChart'), {
+        type: 'bar',
+        data: {
+            labels: processLabels(memoryLabels),
+            datasets: [{
+                label: '메모리 사용량 (GB)',
+                data: [0.4, 0.7, 2.0, 2.6],
+                backgroundColor: brilliantBluesBg,
+                borderColor: brilliantBlues,
+                borderWidth: 2,
+                borderRadius: 5
+            }]
+        },
+        options: {
+            ...baseChartOptions,
+            plugins: { ...baseChartOptions.plugins, legend: { display: true, labels: { color: '#f0f0f0' } } },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                    ticks: { color: '#f0f0f0' }
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: { color: '#f0f0f0' }
+                }
+            }
+        }
+    });
+
+    const benchmarkLabels = ['언어 이해', '수학적 추론', '코딩 능력', '대화 능력', '일반 상식'];
+    new Chart(document.getElementById('benchmarkChart'), {
+        type: 'radar',
+        data: {
+            labels: processLabels(benchmarkLabels),
+            datasets: [
+                {
+                    label: 'BitNet b1.58',
+                    data: [95, 90, 92, 88, 93],
+                    borderColor: '#ffa600',
+                    backgroundColor: 'rgba(255, 166, 0, 0.2)',
+                    pointBackgroundColor: '#ffa600',
+                    pointBorderColor: '#fff',
+                    pointHoverBackgroundColor: '#fff',
+                    pointHoverBorderColor: '#ffa600'
+                },
+                {
+                    label: '기존 FP16 모델',
+                    data: [96, 89, 93, 90, 94],
+                    borderColor: '#7a5195',
+                    backgroundColor: 'rgba(122, 81, 149, 0.2)',
+                    pointBackgroundColor: '#7a5195',
+                    pointBorderColor: '#fff',
+                    pointHoverBackgroundColor: '#fff',
+                    pointHoverBorderColor: '#7a5195'
+                }
+            ]
+        },
+        options: {
+            ...baseChartOptions,
+            plugins: { ...baseChartOptions.plugins, legend: { display: true, labels: { color: '#f0f0f0' } } },
+            scales: {
+                r: {
+                    angleLines: { color: 'rgba(255, 255, 255, 0.2)' },
+                    grid: { color: 'rgba(255, 255, 255, 0.2)' },
+                    pointLabels: {
+                        color: '#f0f0f0',
+                        font: { size: 12 }
+                    },
+                    ticks: {
+                        color: '#f0f0f0',
+                        backdropColor: 'rgba(0, 0, 0, 0.5)',
+                        backdropPadding: 4
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+
+</body>
+</html>
