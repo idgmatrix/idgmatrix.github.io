@@ -18,6 +18,7 @@
 - `hillstate.html`, `hillstate2018.html` : WebGL 기반 3D 데모
 - `webgl3.html` : WebGL 튜토리얼 예제
 - `WebGPU.html`, `WebGPU2.html` : WebGPU 기반 그래픽 데모
+- `sonar_simulator.html` : 소나 시뮬레이터(가상 환경에서 소나 신호 시각화)
 - 기타 이미지, 사운드, JS 파일 등
 
 ## 사용 방법
