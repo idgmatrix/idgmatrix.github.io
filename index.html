@@ -1,20 +1,132 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <title>g-matrix</title>
-  </head>
-  <body>
-    <center>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>g-matrix 포트폴리오</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #232526 0%, #414345 100%);
+      font-family: 'Noto Sans KR', sans-serif;
+      color: #f3f3f3;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+    }
+    .container {
+      margin-top: 60px;
+      background: rgba(30, 32, 34, 0.95);
+      border-radius: 18px;
+      box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+      padding: 40px 32px 32px 32px;
+      max-width: 420px;
+      width: 90vw;
+      text-align: center;
+    }
+    .profile-img {
+      width: 120px;
+      height: 120px;
+      object-fit: cover;
+      border-radius: 50%;
+      border: 4px solid #ffa600;
+      margin-bottom: 18px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+      background: #fff;
+    }
+    h1 {
+      font-size: 2.2rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #ffa600;
+      letter-spacing: 1px;
+    }
+    .desc {
+      color: #e0e0e0;
+      margin-bottom: 24px;
+      font-size: 1.1rem;
+    }
+    ul.html-list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 24px 0;
+    }
+    ul.html-list li {
+      margin: 0 0 12px 0;
+    }
+    ul.html-list a {
+      display: block;
+      background: #2d2f31;
+      color: #ffa600;
+      text-decoration: none;
+      padding: 14px 0;
+      border-radius: 10px;
+      font-size: 1.08rem;
+      font-weight: 500;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      transition: background 0.2s, color 0.2s, transform 0.2s;
+    }
+    ul.html-list a:hover {
+      background: #ffa600;
+      color: #232526;
+      transform: translateY(-2px) scale(1.03);
+    }
+    .footer {
+      margin-top: 32px;
+      color: #aaa;
+      font-size: 0.95rem;
+      text-align: center;
+    }
+    @media (max-width: 600px) {
+      .container { padding: 24px 6vw; }
+      h1 { font-size: 1.5rem; }
+      .profile-img { width: 80px; height: 80px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <img src="kaswan.png" alt="Profile" class="profile-img">
     <h1>g-matrix</h1>
-    <img src="kaswan.png" alt="Picture">
-    <p>WebGL and WebGPU projects</p>
-    <ul>
-      <li><a href="hillstate.html">Menu item1</a></li>
-      <li><a href="hillstate2018.html">Menu item2</a></li>
-      <li><a href="WebGPU.html">Menu item3</a></li>
-      <li><a href="WebGPU2.html">Menu item4</a></li>
+    <div class="desc">WebGL &amp; WebGPU Projects<br>개인 홈페이지</div>
+    <ul class="html-list" id="htmlList">
+      <!-- JS로 HTML 파일 목록이 들어갑니다 -->
     </ul>
-    <p>&copy; 2023 g-matrix. All rights reserved.</p>
-    </center>
-  </body>
+    <div class="footer">&copy; 2023–2025 g-matrix. All rights reserved.</div>
+  </div>
+  <script>
+    // 폴더 내 HTML 파일 목록 (index.html 제외)
+    const htmlFiles = [
+      "BitNet.html",
+      "hillstate.html",
+      "hillstate2018.html",
+      "webgl3.html",
+      "WebGPU.html",
+      "WebGPU2.html"
+    ];
+    // 보기 좋은 이름으로 변환
+    function prettify(name) {
+      if(name === "BitNet.html") return "BitNet 인포그래픽";
+      if(name === "hillstate.html") return "Hillstate (WebGL)";
+      if(name === "hillstate2018.html") return "Hillstate 2018 (WebGL)";
+      if(name === "webgl3.html") return "WebGL Lesson 1";
+      if(name === "WebGPU.html") return "WebGPU Triangle";
+      if(name === "WebGPU2.html") return "WebGPU2 (Advanced)";
+      return name.replace('.html','');
+    }
+    const list = document.getElementById('htmlList');
+    htmlFiles.forEach(file => {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = file;
+      a.textContent = prettify(file);
+      li.appendChild(a);
+      list.appendChild(li);
+    });
+  </script>
+</body>
 </html>
