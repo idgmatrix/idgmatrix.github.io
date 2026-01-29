@@ -15,6 +15,7 @@
 ## 파일 구성
 - `index.html` : 홈페이지 메인(모든 프로젝트 링크, 소개)
 - `BitNet.html` : BitNet 1.58비트 LLM 인포그래픽
+- `cavitation.html` : Cavitaiton Simulation (WebAudio)
 - `hillstate.html`, `hillstate2018.html` : WebGL 기반 3D 데모
 - `webgl3.html` : WebGL 튜토리얼 예제
 - `WebGPU.html`, `WebGPU2.html` : WebGPU 기반 그래픽 데모

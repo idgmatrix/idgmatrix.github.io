@@ -96,12 +96,13 @@
     <ul class="html-list" id="htmlList">
       <!-- JS로 HTML 파일 목록이 들어갑니다 -->
     </ul>
-    <div class="footer">&copy; 2023–2025 g-matrix. All rights reserved.</div>
+    <div class="footer">&copy; 2023–2026 g-matrix. All rights reserved.</div>
   </div>
   <script>
     // 폴더 내 HTML 파일 목록 (index.html 제외)
     const htmlFiles = [
       "BitNet.html",
+      "cavitation.html",
       "hillstate.html",
       "hillstate2018.html",
       "webgl3.html",
@@ -112,6 +113,7 @@
     // 보기 좋은 이름으로 변환
     function prettify(name) {
       if(name === "BitNet.html") return "BitNet 인포그래픽";
+      if(name === "cavitation.html") return "Cavitaiton Simulation (WebAudio)";
       if(name === "hillstate.html") return "Hillstate (WebGL)";
       if(name === "hillstate2018.html") return "Hillstate 2018 (WebGL)";
       if(name === "webgl3.html") return "WebGL Lesson 1";
