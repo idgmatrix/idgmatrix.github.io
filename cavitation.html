@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Quiet Boil - Cavitation Demo</title>
+    <style>
+        body { background: #00050a; color: #00ff41; font-family: 'Courier New', Courier, monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
+        #radar { width: 300px; height: 300px; border: 2px solid #00ff41; border-radius: 50%; position: relative; box-shadow: 0 0 20px #00ff4133; margin-bottom: 20px; }
+        #sweep { width: 50%; height: 2px; background: linear-gradient(to right, transparent, #00ff41); position: absolute; top: 50%; left: 50%; transform-origin: left; animation: sweep 4s linear infinite; }
+        @keyframes sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .controls { background: #001100; padding: 20px; border: 1px solid #00ff41; border-radius: 8px; width: 350px; }
+        .slider-group { margin: 15px 0; }
+        label { display: block; margin-bottom: 5px; font-size: 0.9em; }
+        input { width: 100%; accent-color: #00ff41; }
+        #warning { color: #ff3333; font-weight: bold; text-align: center; height: 20px; margin-top: 10px; visibility: hidden; }
+        .info { font-size: 0.8em; margin-top: 20px; color: #008822; text-align: center; }
+        .ship-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 10px;
+            width: 350px;
+            margin-bottom: 15px;
+        }
+        .ship-card {
+            background: #001100;
+            border: 1px solid #00ff41;
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.8em;
+        }
+        .ship-card:hover, .ship-card.selected {
+            background: #003300;
+            box-shadow: 0 0 10px #00ff41;
+        }
+        .ship-card.selected {
+            border-color: #fff;
+        }
+        .ship-info {
+            background: #001100;
+            padding: 10px;
+            border: 1px solid #00ff41;
+            text-align: center;
+            font-size: 0.8em;
+            margin-bottom: 15px;
+            height: 80px;
+            color: #00ff41;
+        }
+        .display-container {
+            display: inline-block;
+            width: 450px;
+            background: #001100;
+            border: 1px solid #00ff41;
+            padding: 15px;
+            margin: 0 10px 15px 0;
+            vertical-align: top;
+        }
+        .display-header {
+            font-size: 0.8em;
+            color: #00ff41;
+            margin-bottom: 10px;
+            text-align: center;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        canvas {
+            width: 100%;
+            display: block;
+        }
+        #waveformCanvas { height: 60px; }
+        #spectrumCanvas { height: 80px; }
+        #spectrogramCanvas { height: 100px; }
+        .display-controls {
+            display: flex;
+            justify-content: center;
+            gap: 5px;
+            margin-top: 10px;
+        }
+        .display-scroll {
+            display: flex;
+            overflow-x: auto;
+            padding: 15px;
+            margin-bottom: 15px;
+            border: 1px solid #003300;
+            background: #000500;
+        }
+        .display-scroll::-webkit-scrollbar {
+            height: 12px;
+        }
+        .display-scroll::-webkit-scrollbar-track {
+            background: #001100;
+        }
+        .display-scroll::-webkit-scrollbar-thumb {
+            background: #004400;
+            border-radius: 6px;
+        }
+        .display-scroll::-webkit-scrollbar-thumb:hover {
+            background: #006600;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="shipSelector" class="ship-grid"></div>
+    <div class="ship-info" id="shipInfo">Selected: Speed Boat</div>
+
+    <div class="display-scroll">
+        <div class="display-container">
+            <div class="display-header">WAVEFORM</div>
+            <canvas id="waveformCanvas" width="400" height="60"></canvas>
+        </div>
+
+        <div class="display-container">
+            <div class="display-header">FREQUENCY SPECTRUM</div>
+            <canvas id="spectrumCanvas" width="400" height="80"></canvas>
+        </div>
+
+        <div class="display-container">
+            <div class="display-header">SPECTROGRAM</div>
+            <canvas id="spectrogramCanvas" width="400" height="100"></canvas>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div style="text-align: center; margin-bottom: 15px;">[ SONAR SYSTEM ACTIVE ]</div>
+
+        <div class="slider-group">
+            <label id="speedLabel">엔진 출력 (Speed): 0%</label>
+            <input type="range" id="speed" min="0" max="100" value="0">
+        </div>
+
+        <div class="slider-group">
+            <label id="depthLabel">수심 (Depth): 50m</label>
+            <input type="range" id="depth" min="10" max="400" value="50">
+        </div>
+
+        <div id="warning">CAVITATION DETECTED!</div>
+    </div>
+
+    <p class="info">화면을 클릭하면 소나가 가동됩니다.<br>속도가 빠르고 수심이 얕을수록 거품 소음이 커집니다.</p>
+
+<script>
+    // Ship configuration
+    const SHIP_TYPES = {
+        speedboat: {
+            name: 'Speed Boat',
+            hull: 'Planing hull (shallow)',
+            maxSpeed: 100,
+            minDepth: 10,
+            maxDepth: 100,
+            cavitationThreshold: 15,
+            noiseBaseFreq: 800,
+            noiseMaxFreq: 3000,
+            crackleIntensity: 0.5,
+            description: 'High-speed vessel with planing hull, creates intense crackling noise'
+        },
+        largeShip: {
+            name: 'Large Ship',
+            hull: 'Full displacement',
+            maxSpeed: 80,
+            minDepth: 50,
+            maxDepth: 300,
+            cavitationThreshold: 30,
+            noiseBaseFreq: 300,
+            noiseMaxFreq: 800,
+            crackleIntensity: 0.2,
+            description: 'Large cargo vessel with steady underwater rumble'
+        },
+        military: {
+            name: 'Military Vessel',
+            hull: 'Warship hull',
+            maxSpeed: 95,
+            minDepth: 30,
+            maxDepth: 200,
+            cavitationThreshold: 25,
+            noiseBaseFreq: 500,
+            noiseMaxFreq: 2000,
+            crackleIntensity: 0.4,
+            description: 'Naval vessel with sonar, creates deep noise patterns'
+        },
+        researchSub: {
+            name: 'Research Submarine',
+            hull: 'Deep-diving hull',
+            maxSpeed: 45,
+            minDepth: 100,
+            maxDepth: 400,
+            cavitationThreshold: 30,
+            noiseBaseFreq: 200,
+            noiseMaxFreq: 600,
+            crackleIntensity: 0.1,
+            description: 'Research submarine, minimal noise output'
+        },
+        attackSub: {
+            name: 'Attack Submarine',
+            hull: 'Tactical hull',
+            maxSpeed: 70,
+            minDepth: 60,
+            maxDepth: 250,
+            cavitationThreshold: 40,
+            noiseBaseFreq: 400,
+            noiseMaxFreq: 1500,
+            crackleIntensity: 0.3,
+            description: 'Stealth submarine, balanced noise profile'
+        }
+    };
+
+    let audioCtx, noiseNode, filter, gainNode, analyzer;
+    let isStarted = false;
+    let currentShip = 'speedboat';
+    let skipFrame = false;
+    const maxSpectrogramRows = 100;  // Height = frequency bins
+    const maxSpectrogramCols = 400;  // Width = time slices
+    // Store data as column-major: spectrogramData[col * maxSpectrogramRows + row]
+    // where col = time (0 = oldest, maxSpectrogramCols-1 = newest)
+    // where row = frequency bin (0 = low freq)
+    let spectrogramData = new Uint8Array(maxSpectrogramCols * maxSpectrogramRows);
+    // Initialize spectrogram with some base noise
+    spectrogramData.fill(Math.floor(Math.random() * 30));
+
+    const speedInput = document.getElementById('speed');
+    const depthInput = document.getElementById('depth');
+    const warning = document.getElementById('warning');
+    const speedLabel = document.getElementById('speedLabel');
+    const depthLabel = document.getElementById('depthLabel');
+
+    // Render ship selector
+    function renderShipSelector() {
+        const container = document.getElementById('shipSelector');
+        container.innerHTML = '';
+        Object.entries(SHIP_TYPES).forEach(([key, ship]) => {
+            const card = document.createElement('div');
+            card.className = `ship-card ${currentShip === key ? 'selected' : ''}`;
+            card.innerHTML = `<div>${ship.name}</div>`;
+            card.onclick = () => selectShip(key);
+            container.appendChild(card);
+        });
+        updateShipInfo();
+    }
+
+    // Render animal selector
+    function renderAnimalSelector() {
+        const container = document.getElementById('animalSelector');
+        container.innerHTML = '';
+        Object.entries(ANIMAL_TYPES).forEach(([key, animal]) => {
+            const card = document.createElement('div');
+            card.className = `animal-card ${currentAnimal === key ? 'selected' : ''}`;
+            card.innerHTML = `<div>${animal.name}</div><div class="animal-type">${animal.type}</div>`;
+            card.onclick = () => selectAnimal(key);
+            container.appendChild(card);
+        });
+        updateAnimalInfo();
+    }
+
+    function selectShip(shipType) {
+        currentShip = shipType;
+        renderShipSelector();
+    }
+
+    function selectAnimal(animalType) {
+        currentAnimal = animalType;
+        renderAnimalSelector();
+    }
+
+    function updateShipInfo() {
+        const ship = SHIP_TYPES[currentShip];
+        const info = document.getElementById('shipInfo');
+        info.innerHTML = `
+            <strong>${ship.name}</strong><br>
+            ${ship.description}<br>
+            <span style="color:#008822">Hull: ${ship.hull}</span>
+        `;
+    }
+
+    function updateAnimalInfo() {
+        const animal = ANIMAL_TYPES[currentAnimal];
+        const info = document.getElementById('animalInfo');
+        info.innerHTML = `
+            <strong>${animal.name}</strong><br>
+            <span style="color:#0088ff">${animal.description}</span><br>
+            <span style="color:#004466">Type: ${animal.type}</span>
+        `;
+    }
+
+    // 1. Audio engine initialization
+    function initAudio() {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // White noise generation
+        const bufferSize = audioCtx.sampleRate * 2;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+        noiseNode = audioCtx.createBufferSource();
+        noiseNode.buffer = buffer;
+        noiseNode.loop = true;
+
+        filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 400;
+
+        gainNode = audioCtx.createGain();
+        gainNode.gain.value = 0;
+
+        // Create analyzer for visualizations
+        analyzer = audioCtx.createAnalyser();
+        analyzer.fftSize = 512;
+        analyzer.smoothingTimeConstant = 0.8;
+
+        // Connect audio graph: noise -> filter -> gain -> analyzer -> destination
+        noiseNode.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(analyzer);
+        analyzer.connect(audioCtx.destination);
+
+        noiseNode.start();
+        isStarted = true;
+
+        // Start single animation loop
+        requestAnimationFrame(animate);
+    }
+
+    // Draw waveform
+    function drawWaveform(canvas) {
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+
+        ctx.fillStyle = '#001100';
+        ctx.fillRect(0, 0, width, height);
+
+        if (!analyzer) return;
+
+        const bufferLength = analyzer.fftSize;
+        const dataArray = new Uint8Array(bufferLength);
+        analyzer.getByteTimeDomainData(dataArray);
+
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#00ff41';
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#00ff41';
+        ctx.beginPath();
+
+        const sliceWidth = width * 1.0 / bufferLength;
+        let x = 0;
+
+        for (let i = 0; i < bufferLength; i++) {
+            const v = dataArray[i] / 128.0;
+            const y = (v * height) / 2;
+
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+
+            x += sliceWidth;
+        }
+
+        ctx.lineTo(canvas.width, canvas.height / 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+    }
+
+    // Draw frequency spectrum
+    function drawSpectrum(canvas) {
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+
+        ctx.fillStyle = '#001100';
+        ctx.fillRect(0, 0, width, height);
+
+        if (!analyzer) return;
+
+        const bufferLength = analyzer.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        analyzer.getByteFrequencyData(dataArray);
+
+        const barCount = 64;
+        const barWidth = width / barCount;
+        const step = Math.floor(bufferLength / barCount);
+
+        for (let i = 0; i < barCount; i++) {
+            const value = dataArray[i * step];
+            const percent = value / 255;
+            const barHeight = height * percent;
+
+            const r = Math.floor(0 * percent);
+            const g = Math.floor(200 + 55 * percent);
+            const b = Math.floor(200 + 55 * percent);
+
+            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+            ctx.fillRect(i * barWidth, height - barHeight, barWidth - 1, barHeight);
+        }
+
+        ctx.fillStyle = '#004422';
+        ctx.font = '8px monospace';
+        ctx.fillText('0Hz', 4, height - 4);
+        ctx.fillText('1kHz', width / 4, height - 4);
+        ctx.fillText('5kHz', width / 2, height - 4);
+        ctx.fillText('10kHz', width * 0.75, height - 4);
+    }
+
+    // Draw spectrogram (X = time scrolling left, Y = frequency)
+    function drawSpectrogram(canvas) {
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+
+        // Shift data left - column N-1 moves to N-2, etc.
+        // New data appears at the right (highest column index)
+        for (let col = 0; col < maxSpectrogramCols - 1; col++) {
+            // Copy column col+1 to column col
+            for (let row = 0; row < maxSpectrogramRows; row++) {
+                spectrogramData[col * maxSpectrogramRows + row] = spectrogramData[(col + 1) * maxSpectrogramRows + row];
+            }
+        }
+
+        // Get new frequency data and put it in the rightmost column (col = maxSpectrogramCols - 1)
+        if (analyzer) {
+            analyzer.getByteFrequencyData(spectrogramData.subarray(
+                (maxSpectrogramCols - 1) * maxSpectrogramRows,
+                maxSpectrogramCols * maxSpectrogramRows
+            ));
+            // Reverse frequency data: high frequencies at top (row 0), low at bottom
+            for (let row = 0; row < maxSpectrogramRows / 2; row++) {
+                const temp = spectrogramData[(maxSpectrogramCols - 1) * maxSpectrogramRows + row];
+                spectrogramData[(maxSpectrogramCols - 1) * maxSpectrogramRows + row] =
+                    spectrogramData[(maxSpectrogramCols - 1) * maxSpectrogramRows + maxSpectrogramRows - 1 - row];
+                spectrogramData[(maxSpectrogramCols - 1) * maxSpectrogramRows + maxSpectrogramRows - 1 - row] = temp;
+            }
+        }
+
+        // Clear with very dark background
+        ctx.fillStyle = '#000200';
+        ctx.fillRect(0, 0, width, height);
+
+        const rowHeight = height / maxSpectrogramRows;
+        const colWidth = width / maxSpectrogramCols;
+        const freqStep = analyzer ? Math.floor(analyzer.frequencyBinCount / maxSpectrogramRows) : 4;
+
+        // Draw spectrogram - X = time (left to right), Y = frequency (bottom to top)
+        // Iterate columns first (time), then rows (frequency)
+        for (let col = 0; col < maxSpectrogramCols; col++) {
+            const x = col * colWidth;
+
+            for (let row = 0; row < maxSpectrogramRows; row++) {
+                const value = spectrogramData[col * maxSpectrogramRows + row];
+                const percent = value / 255;
+
+                const green = Math.floor(50 + percent * 205);
+                const blue = Math.floor(percent * 255);
+                const alpha = Math.min(1, percent * 2.0 + 0.8);
+
+                const y = row * rowHeight;
+                ctx.fillStyle = `rgba(0, ${green}, ${blue}, ${alpha})`;
+                ctx.fillRect(x, y, colWidth + 1, rowHeight);
+            }
+        }
+
+        // Draw time labels (X-axis) - reversed order (newest left, oldest right)
+        ctx.fillStyle = '#aaffaa';
+        ctx.font = '11px monospace';
+        ctx.fillText('-15s', width * 0.25, height - 15);
+        ctx.fillText('-10s', width * 0.50, height - 15);
+        ctx.fillText('-5s', width * 0.75, height - 15);
+        ctx.fillText('NOW', width * 0.95, height - 15);
+
+        // Draw frequency labels (Y-axis) - reversed order (high at top, low at bottom)
+        const maxFreq = analyzer ? analyzer.fftSize / 2 : 8000;
+        ctx.fillText(`${maxFreq.toFixed(0)}Hz`, 5, height / 4);
+        ctx.fillText(`${(maxFreq / 2).toFixed(0)}Hz`, 5, height / 2);
+        ctx.fillText(`${(maxFreq / 4).toFixed(0)}Hz`, 5, height - 15);
+    }
+
+    // Update visualizations
+    function updateVisualizations() {
+        const waveformCanvas = document.getElementById('waveformCanvas');
+        const spectrumCanvas = document.getElementById('spectrumCanvas');
+        const spectrogramCanvas = document.getElementById('spectrogramCanvas');
+
+        drawWaveform(waveformCanvas);
+        drawSpectrum(spectrumCanvas);
+        drawSpectrogram(spectrogramCanvas);
+    }
+
+    // Animation loop
+    function animate() {
+        const speed = parseFloat(speedInput.value);
+        const depth = parseFloat(depthInput.value);
+        const ship = SHIP_TYPES[currentShip];
+
+        // Update labels - Korean text already in HTML, just update values
+        speedLabel.innerHTML = `${ship.name} (Speed): ${speed}%`;
+        depthLabel.innerHTML = `Depth: ${depth}m (Max: ${ship.maxDepth}m)`;
+
+        // Clamp depth to ship's max depth
+        const clampedDepth = Math.min(depth, ship.maxDepth);
+        const clampedSpeed = Math.min(speed, ship.maxSpeed);
+
+        // Cavitation calculation with ship-specific threshold
+        const threshold = ship.cavitationThreshold;
+        const cavitationIntensity = Math.max(0, (clampedSpeed - threshold) / (ship.maxSpeed - threshold));
+
+        if (cavitationIntensity > 0) {
+            warning.style.visibility = 'visible';
+            // Apply ship-specific noise parameters
+            gainNode.gain.setTargetAtTime(cavitationIntensity * 0.4, audioCtx.currentTime, 0.1);
+            filter.frequency.setTargetAtTime(
+                ship.noiseBaseFreq + (cavitationIntensity * (ship.noiseMaxFreq - ship.noiseBaseFreq)),
+                audioCtx.currentTime, 0.1
+            );
+
+            // Ship-specific crackle rate
+            if (Math.random() < cavitationIntensity * ship.crackleIntensity) {
+                playCrackle(ship);
+            }
+        } else {
+            warning.style.visibility = 'hidden';
+            gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.2); // Full silence
+            filter.frequency.setTargetAtTime(100, audioCtx.currentTime, 0.2); // Below audible range
+        }
+
+        // Update visualizations only every other frame
+        if (!skipFrame) {
+            updateVisualizations();
+        }
+        skipFrame = !skipFrame;
+
+        requestAnimationFrame(animate);
+    }
+
+    // Bubble rupture sound (Crackle) synthesis
+    function playCrackle(ship) {
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+
+        // Ship-specific frequency range
+        const minFreq = ship.noiseBaseFreq * 0.3;
+        const maxFreq = ship.noiseMaxFreq * 0.5;
+        osc.frequency.setValueAtTime(
+            minFreq + Math.random() * (maxFreq - minFreq),
+            audioCtx.currentTime
+        );
+
+        // Ship-specific volume
+        const volume = 0.05 + Math.random() * 0.1;
+        g.gain.setValueAtTime(volume, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.05);
+
+        osc.connect(g);
+        g.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.05);
+    }
+
+    // Initialize selectors on load
+    renderShipSelector();
+
+    window.addEventListener('click', () => {
+        if (!isStarted) initAudio();
+    });
+</script>
+</body>
+</html>
