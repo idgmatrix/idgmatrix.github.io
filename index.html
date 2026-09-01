@@ -108,7 +108,9 @@
       "webgl3.html",
       "WebGPU.html",
       "WebGPU2.html",
-      "sonar_simulator.html"
+      "sonar_simulator.html",
+      "llm_token_stepper_simulator.html",
+      "llm_activation_functions_explorer.html"
     ];
     // 보기 좋은 이름으로 변환
     function prettify(name) {
@@ -119,7 +121,8 @@
       if(name === "webgl3.html") return "WebGL Lesson 1";
       if(name === "WebGPU.html") return "WebGPU Triangle";
       if(name === "WebGPU2.html") return "WebGPU2 (Advanced)";
-      if(name === "sonar_simulator.html") return "Sonar Simulator";
+      if(name === "llm_token_stepper_simulator.html") return "LLM Token Stepper Simulator";
+      if(name === "llm_activation_functions_explorer.html") return "LLM Activation Function Explorer";
       return name.replace('.html','');
     }
     const list = document.getElementById('htmlList');
