@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Token-by-Token Architecture & KV Cache Visualizer</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              500: '#10b981',
+              600: '#059669',
+            },
+            qcolor: '#38bdf8', // Cyan for Query
+            kcolor: '#f59e0b', // Amber for Key
+            vcolor: '#a855f7', // Purple for Value
+            cachebg: '#1e293b'
+          },
+          animation: {
+            'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    .font-mono-code {
+      font-family: 'Fira Code', monospace;
+    }
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    .token-chip {
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .heat-cell {
+      transition: background-color 0.2s ease, transform 0.2s ease;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-emerald-500 selection:text-white">
+
+  <!-- Top Navigation & Global Settings -->
+  <header class="border-b border-slate-800/80 bg-slate-900/90 backdrop-blur sticky top-0 z-40 px-4 lg:px-8 py-3">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+          <i data-lucide="cpu" class="w-5 h-5 text-slate-950"></i>
+        </div>
+        <div>
+          <h1 class="text-base lg:text-lg font-bold flex items-center gap-2">
+            LLM Token Pipeline & KV Cache Visualizer
+            <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">8-Token Edition</span>
+          </h1>
+          <p class="text-xs text-slate-400">토큰별 Q·K·V 생성, 캐시 누적, 어텐션 및 디코딩 과정 탐색기</p>
+        </div>
+      </div>
+
+      <!-- Quick Preset & Attention Mode Selector -->
+      <div class="flex items-center gap-3 flex-wrap">
+        <div class="flex items-center bg-slate-800/90 p-1 rounded-lg border border-slate-700 text-xs">
+          <span class="px-2 text-slate-400 font-medium flex items-center gap-1">
+            <i data-lucide="layers" class="w-3.5 h-3.5"></i> 구조:
+          </span>
+          <button id="btn-mode-mha" onclick="setAttentionType('mha')" class="px-2.5 py-1 rounded font-medium transition-all bg-emerald-500 text-slate-950 shadow">MHA (4Q:4KV)</button>
+          <button id="btn-mode-gqa" onclick="setAttentionType('gqa')" class="px-2.5 py-1 rounded font-medium transition-all text-slate-300 hover:text-white">GQA (4Q:2KV)</button>
+          <button id="btn-mode-mqa" onclick="setAttentionType('mqa')" class="px-2.5 py-1 rounded font-medium transition-all text-slate-300 hover:text-white">MQA (4Q:1KV)</button>
+        </div>
+
+        <select id="preset-selector" onchange="loadPreset(this.value)" class="bg-slate-800 text-slate-200 border border-slate-700 rounded-lg text-xs px-3 py-1.5 focus:outline-none focus:border-emerald-500">
+          <option value="0">예제 1: The quick brown fox jumps over the lazy</option>
+          <option value="1">예제 2: 인공지능 모델은 질문과 검색을 분리하여 학습한다</option>
+          <option value="2">예제 3: Transformer uses queries keys values and cache now</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="max-w-7xl mx-auto w-full p-4 lg:p-6 flex-1 flex flex-col gap-6">
+
+    <!-- Top Playback & Step Control Bar -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 lg:p-5 shadow-xl flex flex-col gap-4">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <!-- Token Phase Badges -->
+        <div class="flex items-center gap-3">
+          <span id="phase-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+            프리필 단계 (Prefill: 토큰 1~7)
+          </span>
+          <span id="current-step-display" class="text-xs text-slate-400 font-mono-code bg-slate-800/80 px-2.5 py-1 rounded-md border border-slate-700">
+            Step: <span class="text-emerald-400 font-bold text-sm">1</span> / 8
+          </span>
+        </div>
+
+        <!-- Interactive Control Buttons -->
+        <div class="flex items-center gap-2">
+          <button onclick="resetStep()" title="처음으로" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition">
+            <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+          </button>
+          <button onclick="prevStep()" title="이전 토큰" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1 text-xs font-semibold transition">
+            <i data-lucide="chevron-left" class="w-4 h-4"></i> 이전
+          </button>
+          <button id="btn-play-pause" onclick="toggleAutoPlay()" class="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold flex items-center gap-1.5 text-xs shadow-lg shadow-emerald-500/20 transition">
+            <i id="play-icon" data-lucide="play" class="w-4 h-4 fill-current"></i>
+            <span id="play-text">자동 진행</span>
+          </button>
+          <button onclick="nextStep()" title="다음 토큰" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1 text-xs font-semibold transition">
+            다음 <i data-lucide="chevron-right" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <!-- Speed & Auto Play Settings -->
+        <div class="flex items-center gap-2 text-xs text-slate-400">
+          <span>속도:</span>
+          <input type="range" id="speed-slider" min="500" max="3000" step="250" value="1500" class="w-24 accent-emerald-500 cursor-pointer">
+          <span id="speed-label" class="font-mono-code text-slate-300 w-10">1.5s</span>
+        </div>
+      </div>
+
+      <!-- 8-Token Interactive Ribbon -->
+      <div>
+        <div class="text-xs font-medium text-slate-400 mb-2 flex justify-between items-center">
+          <span>문맥 토큰 스트림 (8 토큰 컨텍스트):</span>
+          <span class="text-[11px] text-slate-500">클릭하여 특정 토큰 시점으로 즉시 이동</span>
+        </div>
+        <div id="token-stream-container" class="grid grid-cols-4 sm:grid-cols-8 gap-2">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- Left Column: Active Token Q/K/V Projection & Ephemeral Query Card -->
+      <div class="lg:col-span-4 flex flex-col gap-5">
+        
+        <!-- Live Token Transformation Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col gap-3 relative overflow-hidden">
+          <div class="flex items-center justify-between">
+            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-emerald-400"></i>
+              현재 처리 토큰 (Token #<span id="active-token-idx">1</span>)
+            </h2>
+            <span id="active-token-string" class="px-2.5 py-0.5 rounded font-mono-code font-bold text-sm bg-slate-800 text-emerald-300 border border-emerald-500/30">
+              "The"
+            </span>
+          </div>
+
+          <!-- Input Embedding Vector -->
+          <div class="bg-slate-950 p-3 rounded-xl border border-slate-800/80">
+            <div class="flex justify-between text-[11px] text-slate-400 mb-1.5">
+              <span>입력 임베딩 + RoPE 위치 벡터 ($X_{t}$):</span>
+              <span class="font-mono text-slate-500">dim=4</span>
+            </div>
+            <div id="vector-embedding" class="grid grid-cols-4 gap-1.5 font-mono-code text-xs text-center">
+              <!-- JS -->
+            </div>
+          </div>
+
+          <!-- Linear Projections W_q, W_k, W_v Result -->
+          <div class="space-y-2.5 pt-1">
+            <!-- Query Vector -->
+            <div class="bg-sky-950/30 border border-sky-500/40 p-3 rounded-xl transition-all">
+              <div class="flex justify-between items-center text-xs text-sky-300 font-semibold mb-1.5">
+                <span class="flex items-center gap-1">
+                  <span class="w-2 h-2 rounded-full bg-sky-400"></span> Query ($Q_{t} = X W_Q$)
+                </span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 font-mono">1회용 (소멸)</span>
+              </div>
+              <p class="text-[11px] text-slate-400 mb-2">"지금 과거 맥락에서 무엇을 탐색할 것인가?"</p>
+              <div id="vector-q" class="grid grid-cols-4 gap-1.5 font-mono-code text-xs text-center text-sky-200">
+                <!-- JS -->
+              </div>
+            </div>
+
+            <!-- Key Vector -->
+            <div class="bg-amber-950/30 border border-amber-500/40 p-3 rounded-xl transition-all">
+              <div class="flex justify-between items-center text-xs text-amber-300 font-semibold mb-1.5">
+                <span class="flex items-center gap-1">
+                  <span class="w-2 h-2 rounded-full bg-amber-400"></span> Key ($K_{t} = X W_K$)
+                </span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">캐시로 적재 ➔</span>
+              </div>
+              <p class="text-[11px] text-slate-400 mb-2">"나중에 다른 토큰이 날 찾을 색인 라벨"</p>
+              <div id="vector-k" class="grid grid-cols-4 gap-1.5 font-mono-code text-xs text-center text-amber-200">
+                <!-- JS -->
+              </div>
+            </div>
+
+            <!-- Value Vector -->
+            <div class="bg-purple-950/30 border border-purple-500/40 p-3 rounded-xl transition-all">
+              <div class="flex justify-between items-center text-xs text-purple-300 font-semibold mb-1.5">
+                <span class="flex items-center gap-1">
+                  <span class="w-2 h-2 rounded-full bg-purple-400"></span> Value ($V_{t} = X W_V$)
+                </span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">캐시로 적재 ➔</span>
+              </div>
+              <p class="text-[11px] text-slate-400 mb-2">"선택되었을 때 다음 층으로 전달할 실제 내용"</p>
+              <div id="vector-v" class="grid grid-cols-4 gap-1.5 font-mono-code text-xs text-center text-purple-200">
+                <!-- JS -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Explainer Callout -->
+        <div id="step-explanation-box" class="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-xs text-slate-300 leading-relaxed shadow-sm flex gap-3 items-start">
+          <i data-lucide="info" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i>
+          <div id="step-explanation-text">
+            토큰 1이 처리되는 중입니다. 첫 번째 토큰은 참조할 과거 KV 캐시가 없으므로 자기 자신과만 계산합니다.
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Center & Right: Attention Matrix, KV Cache Storage & GQA Architecture -->
+      <div class="lg:col-span-8 flex flex-col gap-5">
+
+        <!-- Attention Computation Matrix & Flow Pipeline Panel -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 lg:p-5 shadow-xl flex flex-col gap-4">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+            <div>
+              <h2 class="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <i data-lucide="calculator" class="w-4 h-4 text-cyan-400"></i>
+                어텐션 행렬 연산 상세 파이프라인 (Step-by-Step Attention Engine)
+              </h2>
+              <p class="text-xs text-slate-400">현재 $Q_t$가 캐시된 $K, V$와 어떻게 행렬 곱셈 $\rightarrow$ 스케일링 $\rightarrow$ 소프트맥스 $\rightarrow$ 가중합($V$)을 수행하는지 추적합니다.</p>
+            </div>
+
+            <!-- View Mode Switcher: Matrix Math vs Attention Arc Graph vs Full 8x8 Grid -->
+            <div class="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+              <button id="tab-btn-math" onclick="switchAttentionView('math')" class="px-3 py-1.5 rounded-lg font-medium transition bg-emerald-500 text-slate-950 font-bold flex items-center gap-1.5">
+                <i data-lucide="binary" class="w-3.5 h-3.5"></i> 행렬 연산 식
+              </button>
+              <button id="tab-btn-graph" onclick="switchAttentionView('graph')" class="px-3 py-1.5 rounded-lg font-medium transition text-slate-400 hover:text-white flex items-center gap-1.5">
+                <i data-lucide="network" class="w-3.5 h-3.5"></i> 어텐션 연결망
+              </button>
+              <button id="tab-btn-matrix8" onclick="switchAttentionView('matrix8')" class="px-3 py-1.5 rounded-lg font-medium transition text-slate-400 hover:text-white flex items-center gap-1.5">
+                <i data-lucide="grid-3x3" class="w-3.5 h-3.5"></i> 8×8 전체 마스크
+              </button>
+            </div>
+          </div>
+
+          <!-- View 1: Detailed Step-by-Step Matrix Equation Flow (Q · K^T / sqrt(d) -> Softmax -> · V) -->
+          <div id="view-attn-math" class="space-y-4">
+            <!-- Mathematical Pipeline Stage Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              
+              <!-- Step 1: Q_t dot K_i^T -->
+              <div class="bg-slate-950 p-3.5 rounded-xl border border-sky-500/30 flex flex-col justify-between">
+                <div class="flex items-center justify-between text-xs text-sky-400 font-bold mb-2">
+                  <span>1. 내적 & 스케일링</span>
+                  <span class="font-mono text-[11px] text-slate-400">S = Q_t K^T / √4</span>
+                </div>
+                <div id="math-step-scores" class="space-y-1 font-mono-code text-[11px] overflow-y-auto max-h-36 pr-1">
+                  <!-- JS dynamically renders dot-product rows -->
+                </div>
+              </div>
+
+              <!-- Step 2: Softmax Normalization -->
+              <div class="bg-slate-950 p-3.5 rounded-xl border border-amber-500/30 flex flex-col justify-between">
+                <div class="flex items-center justify-between text-xs text-amber-400 font-bold mb-2">
+                  <span>2. 소프트맥스 (확률 α)</span>
+                  <span class="font-mono text-[11px] text-slate-400">α = Softmax(S)</span>
+                </div>
+                <div id="math-step-softmax" class="space-y-1 font-mono-code text-[11px] overflow-y-auto max-h-36 pr-1">
+                  <!-- JS dynamically renders softmax percentages -->
+                </div>
+              </div>
+
+              <!-- Step 3: Weighted Sum of V -> Context Vector O_t -->
+              <div class="bg-slate-950 p-3.5 rounded-xl border border-purple-500/30 flex flex-col justify-between">
+                <div class="flex items-center justify-between text-xs text-purple-400 font-bold mb-2">
+                  <span>3. Value 가중합 결과</span>
+                  <span class="font-mono text-[11px] text-slate-400">O_t = Σ (α_i × V_i)</span>
+                </div>
+                <div class="space-y-2">
+                  <div class="text-[11px] text-slate-400">다음 레이어로 전달될 합성 문맥 벡터 (dim=4):</div>
+                  <div id="math-step-output-vec" class="grid grid-cols-4 gap-1.5 font-mono-code text-xs text-center text-emerald-300 font-bold">
+                    <!-- JS -->
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Mathematical Breakdown Banner -->
+            <div class="bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex items-center justify-between text-xs text-slate-300 font-mono-code">
+              <div class="flex items-center gap-2">
+                <span class="text-emerald-400 font-bold">Attention Equation:</span>
+                <span>Context = Softmax( Q<sub id="eq-step-num">1</sub> · [K<sub id="eq-k-range">1</sub>]<sup class="text-[9px]">T</sup> / 2 ) · [V<sub id="eq-v-range">1</sub>]</span>
+              </div>
+              <span class="text-[11px] text-slate-500 hidden sm:inline">인과적 마스킹(Causal) 적용됨</span>
+            </div>
+          </div>
+
+          <!-- View 2: Interactive Token-to-Token Attention Arc Graph Canvas -->
+          <div id="view-attn-graph" class="hidden flex flex-col gap-2">
+            <div class="flex justify-between items-center text-xs text-slate-400">
+              <span>현재 토큰 $Q_t$에서 캐시된 과거 $K, V$로 뻗어나가는 어텐션 연결선 (선 두께 = 가중치 $\alpha$):</span>
+              <span class="text-emerald-400 font-mono font-bold" id="graph-token-count">참조 대상: 1개 토큰</span>
+            </div>
+            <div class="bg-slate-950 rounded-xl p-2 border border-slate-800 overflow-x-auto flex justify-center">
+              <canvas id="attn-canvas" width="680" height="220" class="max-w-full rounded-lg"></canvas>
+            </div>
+          </div>
+
+          <!-- View 3: Full 8x8 Causal Triangular Attention Heatmap Matrix -->
+          <div id="view-attn-matrix8" class="hidden flex flex-col gap-2">
+            <div class="flex justify-between items-center text-xs text-slate-400">
+              <span>전체 8×8 인과적 어텐션 가중치 행렬 ($Q_{1:8} \times K_{1:8}^T$):</span>
+              <span class="text-amber-400 text-[11px]">하삼각 행렬(Lower Triangular)만 유효, 상삼각은 마스킹($-\infty$)</span>
+            </div>
+            <div class="overflow-x-auto bg-slate-950 p-3 rounded-xl border border-slate-800">
+              <div id="full-matrix-container" class="grid grid-cols-9 gap-1 text-[11px] font-mono-code text-center">
+                <!-- JS dynamically renders 8x8 matrix table with header -->
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- KV Cache Memory Table -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 lg:p-5 shadow-lg">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div>
+              <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                <i data-lucide="database" class="w-4 h-4 text-amber-400"></i>
+                VRAM 상주 KV 캐시 메모리 저장소 (Slots 1 ~ 8)
+              </h2>
+              <p class="text-xs text-slate-400">Q는 캐싱되지 않고 즉시 소멸하며, K와 V만 각 스텝마다 슬롯에 누적 저장됩니다.</p>
+            </div>
+            <div class="text-[11px] font-mono-code text-slate-400 bg-slate-950 px-2.5 py-1 rounded border border-slate-800">
+              캐시 사용량: <span id="cache-usage-text" class="text-emerald-400 font-bold">1 / 8 슬롯</span>
+            </div>
+          </div>
+
+          <!-- KV Cache Slots Visual Grid -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left border-collapse">
+              <thead>
+                <tr class="border-b border-slate-800 text-slate-400 font-mono-code">
+                  <th class="py-2 px-2 text-center w-12">슬롯</th>
+                  <th class="py-2 px-2">토큰</th>
+                  <th class="py-2 px-2">Key Cache ($K_{1:t}$)</th>
+                  <th class="py-2 px-2">Value Cache ($V_{1:t}$)</th>
+                  <th class="py-2 px-2 text-center w-24">상태</th>
+                </tr>
+              </thead>
+              <tbody id="kv-cache-table-body" class="divide-y divide-slate-800/60 font-mono-code">
+                <!-- JS dynamically renders 8 rows -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Attention Weights & Causal Masking Heatmap -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+          
+          <!-- Attention Heatmap / Attention Arc -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col justify-between">
+            <div class="flex justify-between items-center mb-2">
+              <h3 class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <i data-lucide="grid" class="w-3.5 h-3.5 text-cyan-400"></i>
+                어텐션 가중치 ($\text{Softmax}(Q_t K^T / \sqrt{d})$)
+              </h3>
+              <span class="text-[10px] text-slate-400 font-mono">인과적 마스킹 (과거만 참조)</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mb-3">현재 토큰 $Q_t$가 각 과거 토큰의 $K$에 부여한 가중치 $\alpha$:</p>
+
+            <!-- Attention Bars for Current Query -->
+            <div id="attention-bars" class="space-y-1.5 flex-1 flex flex-col justify-center">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+
+          <!-- Head Architecture Visualizer (MHA vs GQA vs MQA) -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col justify-between">
+            <div class="flex justify-between items-center mb-2">
+              <h3 class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <i data-lucide="git-merge" class="w-3.5 h-3.5 text-emerald-400"></i>
+                <span id="head-arch-title">GQA 헤드 매핑 구조 (4Q : 2KV)</span>
+              </h3>
+              <span id="head-vram-ratio" class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">KV VRAM 50% 절약</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mb-2">질문의 다양성($Q$ Head)은 유지하고 중복되는 $K,V$ Head는 그룹으로 공유:</p>
+
+            <div id="head-mapping-diagram" class="bg-slate-950 p-3 rounded-xl border border-slate-800/80 flex flex-col gap-2">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Next Token Prediction (Decoding Output) -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <i data-lucide="bar-chart-2" class="w-3.5 h-3.5 text-emerald-400"></i>
+              최종 Softmax 로짓 및 다음 토큰 확률 분포 (Next-Token Prediction)
+            </h3>
+            <span class="text-[10px] text-slate-400 font-mono">Softmax(Linear(Output_t))</span>
+          </div>
+
+          <div id="next-token-distribution" class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- Educational Footer Cards: The 3 Core Insights -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+      <div class="bg-slate-900/60 border border-slate-800 p-3.5 rounded-xl">
+        <h4 class="text-xs font-semibold text-sky-400 mb-1 flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-sky-400"></span> 1. Query (검색어)
+        </h4>
+        <p class="text-[11px] text-slate-400 leading-relaxed">
+          새 토큰이 생길 때만 순간적으로 계산되고, 이전 $K$들과 내적 후 다음 토큰을 뽑자마자 폐기됩니다. 영구 보관할 필요가 없습니다.
+        </p>
+      </div>
+      <div class="bg-slate-900/60 border border-slate-800 p-3.5 rounded-xl">
+        <h4 class="text-xs font-semibold text-amber-400 mb-1 flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-amber-400"></span> 2. Key (인덱스 카드)
+        </h4>
+        <p class="text-[11px] text-slate-400 leading-relaxed">
+          미래의 토큰들이 자신을 찾아올 수 있도록 주소/식별자 역할을 합니다. KV 캐시 테이블에 남아 지속적으로 검색에 응합니다.
+        </p>
+      </div>
+      <div class="bg-slate-900/60 border border-slate-800 p-3.5 rounded-xl">
+        <h4 class="text-xs font-semibold text-purple-400 mb-1 flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-purple-400"></span> 3. Value (실제 책 본문)
+        </h4>
+        <p class="text-[11px] text-slate-400 leading-relaxed">
+          Key로 선택된 강도($\alpha$)만큼 가중 평균되어 다음 레이어로 넘어갈 순수한 의미 정보입니다. 역시 KV 캐시에 계속 상주합니다.
+        </p>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    // Presets with 8 tokens and simulated next-token candidate predictions
+    const PRESETS = [
+      {
+        tokens: ["The", "quick", "brown", "fox", "jumps", "over", "the", "lazy"],
+        predictions: [
+          [ { token: "quick", p: "82%" }, { token: "dog", p: "7%" }, { token: "sun", p: "5%" }, { token: "first", p: "2%" } ],
+          [ { token: "brown", p: "91%" }, { token: "red", p: "4%" }, { token: "fox", p: "3%" }, { token: "rabbit", p: "1%" } ],
+          [ { token: "fox", p: "94%" }, { token: "bear", p: "3%" }, { token: "cat", p: "2%" }, { token: "dog", p: "1%" } ],
+          [ { token: "jumps", p: "89%" }, { token: "runs", p: "6%" }, { token: "leaps", p: "3%" }, { token: "walks", p: "1%" } ],
+          [ { token: "over", p: "92%" }, { token: "high", p: "4%" }, { token: "into", p: "2%" }, { token: "away", p: "1%" } ],
+          [ { token: "the", p: "95%" }, { token: "a", p: "3%" }, { token: "lazy", p: "1%" }, { token: "some", p: "1%" } ],
+          [ { token: "lazy", p: "88%" }, { token: "sleeping", p: "6%" }, { token: "fence", p: "4%" }, { token: "grass", p: "1%" } ],
+          [ { token: "dog", p: "96%" }, { token: "cat", p: "2%" }, { token: "rabbit", p: "1%" }, { token: "hound", p: "1%" } ]
+        ]
+      },
+      {
+        tokens: ["인공지능", "모델은", "질문과", "검색을", "분리하여", "학습하고", "추론을", "수행"],
+        predictions: [
+          [ { token: "모델은", p: "84%" }, { token: "기술은", p: "8%" }, { token: "연구는", p: "5%" }, { token: "시대에", p: "3%" } ],
+          [ { token: "질문과", p: "76%" }, { token: "데이터를", p: "12%" }, { token: "스스로", p: "7%" }, { token: "정보를", p: "5%" } ],
+          [ { token: "검색을", p: "89%" }, { token: "답변을", p: "6%" }, { token: "지식을", p: "3%" }, { token: "맥락을", p: "2%" } ],
+          [ { token: "분리하여", p: "81%" }, { token: "통합하여", p: "10%" }, { token: "통해", p: "6%" }, { token: "연결하여", p: "3%" } ],
+          [ { token: "학습하고", p: "87%" }, { token: "동작하며", p: "8%" }, { token: "처리하여", p: "3%" }, { token: "기록하고", p: "2%" } ],
+          [ { token: "추론을", p: "90%" }, { token: "결과를", p: "5%" }, { token: "답을", p: "3%" }, { token: "언어를", p: "2%" } ],
+          [ { token: "수행", p: "93%" }, { token: "진행", p: "4%" }, { token: "시작", p: "2%" }, { token: "완료", p: "1%" } ],
+          [ { token: "한다.", p: "97%" }, { token: "합니다.", p: "2%" }, { token: "하고있다.", p: "1%" }, { token: "중이다.", p: "0%" } ]
+        ]
+      },
+      {
+        tokens: ["Transformer", "uses", "queries", "keys", "values", "and", "cache", "now"],
+        predictions: [
+          [ { token: "uses", p: "78%" }, { token: "is", p: "11%" }, { token: "architecture", p: "6%" }, { token: "models", p: "3%" } ],
+          [ { token: "queries", p: "85%" }, { token: "attention", p: "9%" }, { token: "vectors", p: "4%" }, { token: "layers", p: "2%" } ],
+          [ { token: "keys", p: "92%" }, { token: "and", p: "4%" }, { token: "values", p: "3%" }, { token: "weights", p: "1%" } ],
+          [ { token: "values", p: "95%" }, { token: "and", p: "3%" }, { token: "matrices", p: "1%" }, { token: "vectors", p: "1%" } ],
+          [ { token: "and", p: "89%" }, { token: "to", p: "6%" }, { token: "with", p: "3%" }, { token: "for", p: "1%" } ],
+          [ { token: "cache", p: "86%" }, { token: "KV", p: "8%" }, { token: "memory", p: "4%" }, { token: "layers", p: "1%" } ],
+          [ { token: "now", p: "80%" }, { token: "efficiently", p: "12%" }, { token: "fast", p: "5%" }, { token: "together", p: "3%" } ],
+          [ { token: "to", p: "74%" }, { token: "for", p: "15%" }, { token: "and", p: "6%" }, { token: "predict", p: "4%" } ]
+        ]
+      }
+    ];
+
+    // Simulated Pseudo Vector Generator (Deterministic by seed/token)
+    function generateVector(seedStr, type) {
+      let hash = 0;
+      for (let i = 0; i < seedStr.length; i++) {
+        hash = (hash << 5) - hash + seedStr.charCodeAt(i);
+        hash |= 0;
+      }
+      const typeOffset = type === 'q' ? 1.2 : type === 'k' ? 2.4 : type === 'v' ? 3.7 : 0.5;
+      const v = [];
+      for (let i = 0; i < 4; i++) {
+        const val = Math.sin(hash + i * 2.1 + typeOffset) * 0.95;
+        v.push(parseFloat(val.toFixed(2)));
+      }
+      return v;
+    }
+
+    // State Variables
+    let currentPresetIdx = 0;
+    let currentStep = 1; // 1 to 8
+    let maxSteps = 8;
+    let attentionType = 'gqa'; // 'mha', 'gqa', 'mqa'
+    let isAutoPlaying = false;
+    let playTimer = null;
+    let activeAttentionView = 'math'; // 'math', 'graph', 'matrix8'
+
+    // Compute exact dot products, softmax weights, and weighted Value output vector
+    function computeAttentionMath() {
+      const tokens = PRESETS[currentPresetIdx].tokens;
+      const activeToken = tokens[currentStep - 1];
+      const qVec = generateVector(activeToken, 'q'); // [q0, q1, q2, q3]
+      const sqrtD = Math.sqrt(4); // 2.0
+
+      const dotProducts = [];
+      const scaledScores = [];
+      const allKV = [];
+
+      for (let i = 0; i < currentStep; i++) {
+        const kVec = generateVector(tokens[i], 'k');
+        const vVec = generateVector(tokens[i], 'v');
+        allKV.push({ k: kVec, v: vVec });
+
+        // Dot product q · k
+        let dot = 0;
+        for (let d = 0; d < 4; d++) {
+          dot += qVec[d] * kVec[d];
+        }
+        dotProducts.push(dot);
+        scaledScores.push(dot / sqrtD);
+      }
+
+      // Softmax
+      const maxScore = Math.max(...scaledScores);
+      const exps = scaledScores.map(s => Math.exp(s - maxScore));
+      const expSum = exps.reduce((a, b) => a + b, 0);
+      const weights = exps.map(e => e / expSum);
+
+      // Weighted sum sum(alpha_i * v_i)
+      const outputVec = [0, 0, 0, 0];
+      for (let i = 0; i < currentStep; i++) {
+        for (let d = 0; d < 4; d++) {
+          outputVec[d] += weights[i] * allKV[i].v[d];
+        }
+      }
+
+      return {
+        qVec,
+        dotProducts,
+        scaledScores,
+        weights,
+        allKV,
+        outputVec
+      };
+    }
+
+    function renderAttentionMathPipeline() {
+      const math = computeAttentionMath();
+      const tokens = PRESETS[currentPresetIdx].tokens;
+
+      // Update Formula Text
+      document.getElementById('eq-step-num').innerText = currentStep;
+      document.getElementById('eq-k-range').innerText = currentStep === 1 ? '1' : `1:${currentStep}`;
+      document.getElementById('eq-v-range').innerText = currentStep === 1 ? '1' : `1:${currentStep}`;
+
+      // 1. Dot products list
+      const scoreBox = document.getElementById('math-step-scores');
+      scoreBox.innerHTML = '';
+      for (let i = 0; i < currentStep; i++) {
+        const row = document.createElement('div');
+        row.className = 'flex justify-between items-center py-0.5 border-b border-slate-900';
+        row.innerHTML = `
+          <span class="text-slate-400">Q<sub>${currentStep}</sub> · K<sub>${i+1}</sub> ("${tokens[i]}"):</span>
+          <span class="text-sky-300 font-bold">${math.scaledScores[i] >= 0 ? '+' : ''}${math.scaledScores[i].toFixed(2)}</span>
+        `;
+        scoreBox.appendChild(row);
+      }
+
+      // 2. Softmax weights list
+      const softmaxBox = document.getElementById('math-step-softmax');
+      softmaxBox.innerHTML = '';
+      for (let i = 0; i < currentStep; i++) {
+        const pct = (math.weights[i] * 100).toFixed(1);
+        const row = document.createElement('div');
+        row.className = 'flex justify-between items-center py-0.5 border-b border-slate-900';
+        row.innerHTML = `
+          <span class="text-slate-400">α<sub>${currentStep}➔${i+1}</sub>:</span>
+          <div class="flex items-center gap-1.5">
+            <span class="text-amber-300 font-bold">${pct}%</span>
+          </div>
+        `;
+        softmaxBox.appendChild(row);
+      }
+
+      // 3. Output Vector
+      const outBox = document.getElementById('math-step-output-vec');
+      outBox.innerHTML = math.outputVec.map(v => `
+        <div class="p-1 rounded bg-purple-950/40 border border-purple-500/30 text-emerald-300">
+          ${v >= 0 ? '+' + v.toFixed(2) : v.toFixed(2)}
+        </div>
+      `).join('');
+    }
+
+    // Render Canvas Arc Graph
+    function renderAttentionGraphCanvas() {
+      const canvas = document.getElementById('attn-canvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+      ctx.clearRect(0, 0, width, height);
+
+      const tokens = PRESETS[currentPresetIdx].tokens;
+      const math = computeAttentionMath();
+
+      document.getElementById('graph-token-count').innerText = `참조 대상: ${currentStep}개 토큰 K,V 캐시`;
+
+      const numTokens = 8;
+      const stepX = width / (numTokens + 1);
+      const topY = 45;
+      const bottomY = 175;
+
+      // Draw Top Nodes (Query Tokens)
+      for (let i = 0; i < numTokens; i++) {
+        const x = (i + 1) * stepX;
+        const isCurrentQ = (i === currentStep - 1);
+        const isPast = (i < currentStep - 1);
+
+        // Top Query node
+        ctx.beginPath();
+        ctx.arc(x, topY, 14, 0, Math.PI * 2);
+        ctx.fillStyle = isCurrentQ ? '#0284c7' : isPast ? '#334155' : '#0f172a';
+        ctx.fill();
+        ctx.lineWidth = isCurrentQ ? 2 : 1;
+        ctx.strokeStyle = isCurrentQ ? '#38bdf8' : '#475569';
+        ctx.stroke();
+
+        ctx.fillStyle = isCurrentQ ? '#ffffff' : isPast ? '#94a3b8' : '#475569';
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Q${i+1}`, x, topY + 3.5);
+
+        // Token label top
+        ctx.font = '9px sans-serif';
+        ctx.fillStyle = isCurrentQ ? '#38bdf8' : '#64748b';
+        ctx.fillText(tokens[i], x, topY - 20);
+
+        // Bottom KV nodes
+        const isCachedKV = (i < currentStep);
+        ctx.beginPath();
+        ctx.arc(x, bottomY, 14, 0, Math.PI * 2);
+        ctx.fillStyle = isCachedKV ? '#78350f' : '#0f172a';
+        ctx.fill();
+        ctx.lineWidth = isCachedKV ? 2 : 1;
+        ctx.strokeStyle = isCachedKV ? '#f59e0b' : '#334155';
+        ctx.stroke();
+
+        ctx.fillStyle = isCachedKV ? '#fef3c7' : '#475569';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(`K,V${i+1}`, x, bottomY + 3.5);
+
+        ctx.font = '9px sans-serif';
+        ctx.fillStyle = isCachedKV ? '#f59e0b' : '#475569';
+        ctx.fillText(tokens[i], x, bottomY + 26);
+      }
+
+      // Draw Attention Arcs from current Q to all cached K,V
+      const currentQX = currentStep * stepX;
+      for (let i = 0; i < currentStep; i++) {
+        const kvX = (i + 1) * stepX;
+        const weight = math.weights[i]; // 0.0 ~ 1.0
+
+        ctx.beginPath();
+        ctx.moveTo(currentQX, topY + 14);
+
+        // Bezier curve
+        const cp1x = currentQX;
+        const cp1y = topY + 50;
+        const cp2x = kvX;
+        const cp2y = bottomY - 50;
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, kvX, bottomY - 14);
+
+        ctx.lineWidth = Math.max(1, weight * 7);
+        ctx.strokeStyle = `rgba(56, 189, 248, ${Math.max(0.2, weight * 0.95)})`;
+        ctx.stroke();
+
+        // Draw Weight tag on mid curve
+        const midX = (currentQX + kvX) / 2;
+        const midY = (topY + bottomY) / 2;
+        if (weight > 0.08 || currentStep <= 3) {
+          ctx.fillStyle = '#0f172a';
+          ctx.fillRect(midX - 14, midY - 7, 28, 14);
+          ctx.strokeStyle = '#38bdf8';
+          ctx.lineWidth = 0.8;
+          ctx.strokeRect(midX - 14, midY - 7, 28, 14);
+          ctx.fillStyle = '#38bdf8';
+          ctx.font = 'bold 9px monospace';
+          ctx.fillText(`${Math.round(weight * 100)}%`, midX, midY + 3);
+        }
+      }
+    }
+
+    // Render Full 8x8 Triangular Matrix
+    function renderFull8x8Matrix() {
+      const container = document.getElementById('full-matrix-container');
+      const tokens = PRESETS[currentPresetIdx].tokens;
+      container.innerHTML = '';
+
+      // Header row
+      const corner = document.createElement('div');
+      corner.className = 'p-1 text-slate-500 font-bold';
+      corner.innerText = 'Q \\ K';
+      container.appendChild(corner);
+
+      for (let c = 0; c < 8; c++) {
+        const colHead = document.createElement('div');
+        colHead.className = 'p-1 text-amber-400 font-bold truncate';
+        colHead.innerText = `K${c+1}`;
+        colHead.title = tokens[c];
+        container.appendChild(colHead);
+      }
+
+      // Matrix rows 1..8
+      for (let r = 0; r < 8; r++) {
+        const rowLabel = document.createElement('div');
+        const isCurrentRow = (r === currentStep - 1);
+        const isPastRow = (r < currentStep - 1);
+        rowLabel.className = `p-1 font-bold flex items-center justify-center ${
+          isCurrentRow ? 'text-sky-300 bg-sky-950/40 rounded border border-sky-500/40' : isPastRow ? 'text-slate-300' : 'text-slate-600'
+        }`;
+        rowLabel.innerText = `Q${r+1}`;
+        container.appendChild(rowLabel);
+
+        for (let c = 0; c < 8; c++) {
+          const cell = document.createElement('div');
+          const isMasked = c > r;
+          const isCalculated = (r <= currentStep - 1);
+          const isCurrentActive = (r === currentStep - 1 && c <= r);
+
+          if (isMasked) {
+            cell.className = 'p-1.5 rounded bg-slate-950 text-slate-800 border border-slate-900 text-[10px]';
+            cell.innerText = '-∞';
+            cell.title = '인과적 마스킹 (미래 참조 불가)';
+          } else if (!isCalculated) {
+            cell.className = 'p-1.5 rounded bg-slate-950 text-slate-700 border border-slate-900/60 text-[10px]';
+            cell.innerText = '·';
+          } else {
+            // Simulated weight
+            let pseudoW = Math.sin((r + 1) * 1.5 + (c + 1) * 0.7);
+            let pct = Math.abs(Math.round((pseudoW + 1.2) * 28));
+            pct = Math.min(99, Math.max(5, pct));
+
+            cell.className = `p-1.5 rounded text-[10px] font-bold transition-all ${
+              isCurrentActive
+                ? 'bg-sky-500/30 text-sky-200 border border-sky-400 shadow-sm'
+                : 'bg-slate-800/80 text-slate-300 border border-slate-700'
+            }`;
+            cell.innerText = `${pct}%`;
+          }
+          container.appendChild(cell);
+        }
+      }
+    }
+
+    // Switch between Attention Views
+    function switchAttentionView(viewType) {
+      activeAttentionView = viewType;
+      ['math', 'graph', 'matrix8'].forEach(v => {
+        const btn = document.getElementById(`tab-btn-${v}`);
+        const viewEl = document.getElementById(`view-attn-${v}`);
+        if (v === viewType) {
+          btn.className = 'px-3 py-1.5 rounded-lg font-medium transition bg-emerald-500 text-slate-950 font-bold flex items-center gap-1.5';
+          viewEl.classList.remove('hidden');
+        } else {
+          btn.className = 'px-3 py-1.5 rounded-lg font-medium transition text-slate-400 hover:text-white flex items-center gap-1.5';
+          viewEl.classList.add('hidden');
+        }
+      });
+
+      if (viewType === 'graph') {
+        renderAttentionGraphCanvas();
+      } else if (viewType === 'matrix8') {
+        renderFull8x8Matrix();
+      } else {
+        renderAttentionMathPipeline();
+      }
+      lucide.createIcons();
+    }
+
+    // Master Render Trigger
+    function updateAllViews() {
+      renderTokenStream();
+      renderActiveTokenVectors();
+      renderKVCacheTable();
+      renderAttentionScores();
+      renderHeadArchitecture();
+      renderNextTokenPrediction();
+
+      // Update active attention view
+      if (activeAttentionView === 'math') {
+        renderAttentionMathPipeline();
+      } else if (activeAttentionView === 'graph') {
+        renderAttentionGraphCanvas();
+      } else if (activeAttentionView === 'matrix8') {
+        renderFull8x8Matrix();
+      }
+    }
+
+    function getExplanation(step, token) {
+      if (step === 1) {
+        return `<strong>토큰 1 ("${token}"):</strong> 첫 번째 토큰이 입력되었습니다. 참조할 과거의 KV 캐시가 없으므로 자기 자신의 Key와만 어텐션 점수를 계산(100%)하고, K와 V 벡터를 캐시 슬롯 1에 적재합니다.`;
+      } else if (step < 8) {
+        return `<strong>토큰 ${step} ("${token}"):</strong> 새 토큰이 입력되어 임시 Query($Q_{${step}}$)를 생성했습니다. 이전 스텝에서 캐시된 $K_{1:${step-1}}$ 및 자신의 $K_{${step}}$과 내적하여 어텐션을 계산한 뒤, 다음 토큰을 예측하고 $K_{${step}}, V_{${step}}$를 캐시에 추가 적재합니다.`;
+      } else {
+        return `<strong>토큰 8 ("${token}"):</strong> 8번째 토큰이 처리되며 총 8개의 KV 캐시 슬롯이 모두 채워졌습니다. 이제 누적된 전체 8개 토큰의 문맥을 활용하여 다음 단어를 예측합니다.`;
+      }
+    }
+
+    function renderTokenStream() {
+      const container = document.getElementById('token-stream-container');
+      const tokens = PRESETS[currentPresetIdx].tokens;
+      container.innerHTML = '';
+
+      tokens.forEach((t, idx) => {
+        const tokenNum = idx + 1;
+        const isProcessed = tokenNum < currentStep;
+        const isActive = tokenNum === currentStep;
+        const isFuture = tokenNum > currentStep;
+
+        const btn = document.createElement('button');
+        btn.onclick = () => jumpToStep(tokenNum);
+        btn.className = `token-chip p-2 rounded-xl text-xs font-mono-code font-semibold flex flex-col items-center justify-between border relative cursor-pointer ${
+          isActive
+            ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 ring-2 ring-emerald-500/50 scale-105 shadow-lg shadow-emerald-500/10'
+            : isProcessed
+            ? 'bg-slate-800/90 border-slate-700 text-slate-300 hover:border-slate-500'
+            : 'bg-slate-950/40 border-slate-900 text-slate-600 opacity-60 hover:opacity-100'
+        }`;
+
+        btn.innerHTML = `
+          <div class="flex items-center justify-between w-full text-[10px] text-slate-400 mb-1">
+            <span>#${tokenNum}</span>
+            ${isActive ? '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>' : ''}
+            ${isProcessed ? '<i data-lucide="check" class="w-3 h-3 text-emerald-400"></i>' : ''}
+          </div>
+          <span class="truncate max-w-full text-center">${t}</span>
+          <span class="text-[9px] mt-1 text-slate-500">${isActive ? 'Active Q' : isProcessed ? 'In Cache' : 'Pending'}</span>
+        `;
+        container.appendChild(btn);
+      });
+      lucide.createIcons();
+    }
+
+    function renderActiveTokenVectors() {
+      const tokens = PRESETS[currentPresetIdx].tokens;
+      const activeToken = tokens[currentStep - 1];
+
+      document.getElementById('active-token-idx').innerText = currentStep;
+      document.getElementById('active-token-string').innerText = `"${activeToken}"`;
+      document.getElementById('current-step-display').innerHTML = `Step: <span class="text-emerald-400 font-bold text-sm">${currentStep}</span> / 8`;
+
+      const phaseBadge = document.getElementById('phase-badge');
+      if (currentStep < 8) {
+        phaseBadge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center gap-1.5';
+        phaseBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span> 프리필 단계 (토큰 1~${currentStep} 적재 중)`;
+      } else {
+        phaseBadge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5';
+        phaseBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span> 8 토큰 디코딩 & 예측 완료`;
+      }
+
+      // Generate simulated vectors
+      const emb = generateVector(activeToken, 'emb');
+      const q = generateVector(activeToken, 'q');
+      const k = generateVector(activeToken, 'k');
+      const v = generateVector(activeToken, 'v');
+
+      const renderV = (elemId, vec, colorClass) => {
+        const el = document.getElementById(elemId);
+        el.innerHTML = vec.map(num => `
+          <div class="p-1 rounded bg-slate-900/80 border border-slate-800 ${colorClass}">
+            ${num >= 0 ? '+' + num.toFixed(2) : num.toFixed(2)}
+          </div>
+        `).join('');
+      };
+
+      renderV('vector-embedding', emb, 'text-slate-300');
+      renderV('vector-q', q, 'text-sky-300 font-bold');
+      renderV('vector-k', k, 'text-amber-300 font-bold');
+      renderV('vector-v', v, 'text-purple-300 font-bold');
+
+      // Explanation
+      document.getElementById('step-explanation-text').innerHTML = getExplanation(currentStep, activeToken);
+    }
+
+    function renderKVCacheTable() {
+      const tbody = document.getElementById('kv-cache-table-body');
+      const tokens = PRESETS[currentPresetIdx].tokens;
+      tbody.innerHTML = '';
+
+      for (let i = 0; i < maxSteps; i++) {
+        const slotNum = i + 1;
+        const tokenStr = tokens[i];
+        const isOccupied = slotNum <= currentStep;
+        const isJustAdded = slotNum === currentStep;
+
+        const kVec = isOccupied ? generateVector(tokenStr, 'k') : null;
+        const vVec = isOccupied ? generateVector(tokenStr, 'v') : null;
+
+        const tr = document.createElement('tr');
+        tr.className = `transition-all ${
+          isJustAdded
+            ? 'bg-amber-500/10 font-bold text-amber-200'
+            : isOccupied
+            ? 'bg-slate-900/40 text-slate-300'
+            : 'text-slate-600 opacity-40'
+        }`;
+
+        tr.innerHTML = `
+          <td class="py-2.5 px-2 text-center font-bold">
+            <span class="w-6 h-6 inline-flex items-center justify-center rounded-md ${
+              isOccupied ? 'bg-slate-800 text-slate-200' : 'bg-slate-950 text-slate-700'
+            }">${slotNum}</span>
+          </td>
+          <td class="py-2.5 px-2 font-semibold">
+            ${isOccupied ? `"${tokenStr}"` : '<span class="text-slate-700 font-normal">빈 슬롯</span>'}
+          </td>
+          <td class="py-2.5 px-2">
+            ${isOccupied ? `
+              <div class="flex gap-1 text-[11px] text-amber-300 font-mono">
+                [${kVec.map(n => (n >= 0 ? '+' : '') + n.toFixed(1)).join(', ')}]
+              </div>
+            ` : '<span class="text-slate-700">-</span>'}
+          </td>
+          <td class="py-2.5 px-2">
+            ${isOccupied ? `
+              <div class="flex gap-1 text-[11px] text-purple-300 font-mono">
+                [${vVec.map(n => (n >= 0 ? '+' : '') + n.toFixed(1)).join(', ')}]
+              </div>
+            ` : '<span class="text-slate-700">-</span>'}
+          </td>
+          <td class="py-2.5 px-2 text-center">
+            ${isJustAdded ? `
+              <span class="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30">방금 적재</span>
+            ` : isOccupied ? `
+              <span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700">VRAM 상주</span>
+            ` : `
+              <span class="px-2 py-0.5 rounded text-[10px] bg-slate-950 text-slate-700">미사용</span>
+            `}
+          </td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      document.getElementById('cache-usage-text').innerText = `${currentStep} / ${maxSteps} 슬롯 (${Math.round((currentStep/maxSteps)*100)}%)`;
+    }
+
+    function renderAttentionScores() {
+      const container = document.getElementById('attention-bars');
+      const tokens = PRESETS[currentPresetIdx].tokens;
+      container.innerHTML = '';
+
+      // Simulated attention weights from current Q to all previous K's
+      const weights = [];
+      let sum = 0;
+      for (let i = 0; i < currentStep; i++) {
+        // Bias attention higher towards recent tokens or specific key matches
+        const rawScore = Math.exp(Math.sin((currentStep + 1) * (i + 2)) + (i === 0 ? 0.8 : 0) + (i === currentStep - 1 ? 1.5 : 0.2));
+        weights.push(rawScore);
+        sum += rawScore;
+      }
+      const normalized = weights.map(w => w / sum);
+
+      for (let i = 0; i < maxSteps; i++) {
+        const tokenStr = tokens[i];
+        const isPastOrCurrent = i < currentStep;
+        const weightPct = isPastOrCurrent ? Math.round(normalized[i] * 100) : 0;
+        const isSelf = i === currentStep - 1;
+
+        const row = document.createElement('div');
+        row.className = `flex items-center gap-2 text-xs font-mono-code ${
+          !isPastOrCurrent ? 'opacity-25' : ''
+        }`;
+
+        row.innerHTML = `
+          <span class="w-16 truncate text-right ${isSelf ? 'text-cyan-300 font-bold' : isPastOrCurrent ? 'text-slate-300' : 'text-slate-600'}">
+            ${tokenStr}
+          </span>
+          <div class="flex-1 bg-slate-950 rounded-full h-3.5 p-0.5 border border-slate-800 relative overflow-hidden">
+            <div class="h-full rounded-full transition-all duration-300 ${
+              isSelf ? 'bg-gradient-to-r from-cyan-500 to-emerald-400' : 'bg-slate-600'
+            }" style="width: ${weightPct}%"></div>
+          </div>
+          <span class="w-10 text-right text-[11px] font-bold ${
+            isPastOrCurrent ? (isSelf ? 'text-cyan-400' : 'text-slate-400') : 'text-slate-700'
+          }">
+            ${isPastOrCurrent ? weightPct + '%' : 'MASK'}
+          </span>
+        `;
+        container.appendChild(row);
+      }
+    }
+
+    function renderHeadArchitecture() {
+      const container = document.getElementById('head-mapping-diagram');
+      const titleEl = document.getElementById('head-arch-title');
+      const vramEl = document.getElementById('head-vram-ratio');
+
+      if (attentionType === 'mha') {
+        titleEl.innerText = 'MHA 구조 (4 Query : 4 Key/Value)';
+        vramEl.innerText = 'KV VRAM 기준점 (100%)';
+        vramEl.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-slate-700 text-slate-300 border border-slate-600';
+        container.innerHTML = `
+          <div class="grid grid-cols-4 gap-1.5 text-center text-[10px] font-mono">
+            <div class="p-1.5 rounded bg-sky-950/60 border border-sky-500/40 text-sky-300">Q0 ➔ KV0</div>
+            <div class="p-1.5 rounded bg-sky-950/60 border border-sky-500/40 text-sky-300">Q1 ➔ KV1</div>
+            <div class="p-1.5 rounded bg-sky-950/60 border border-sky-500/40 text-sky-300">Q2 ➔ KV2</div>
+            <div class="p-1.5 rounded bg-sky-950/60 border border-sky-500/40 text-sky-300">Q3 ➔ KV3</div>
+          </div>
+          <p class="text-[10px] text-slate-400 text-center">모든 Q 헤드가 개별 독립 KV 헤드를 가져 캐시 용량이 가장 큼</p>
+        `;
+      } else if (attentionType === 'gqa') {
+        titleEl.innerText = 'GQA 구조 (4 Query : 2 Key/Value)';
+        vramEl.innerText = 'KV VRAM 50% 절약';
+        vramEl.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        container.innerHTML = `
+          <div class="grid grid-cols-2 gap-2 text-[10px] font-mono">
+            <div class="p-2 rounded bg-slate-900 border border-emerald-500/40 flex flex-col gap-1 text-center">
+              <span class="text-emerald-400 font-bold">[Group 0] 공유 KV0</span>
+              <div class="flex justify-center gap-1 text-sky-300">
+                <span class="bg-sky-950 px-1.5 py-0.5 rounded border border-sky-500/30">Q0</span>
+                <span class="bg-sky-950 px-1.5 py-0.5 rounded border border-sky-500/30">Q1</span>
+              </div>
+            </div>
+            <div class="p-2 rounded bg-slate-900 border border-emerald-500/40 flex flex-col gap-1 text-center">
+              <span class="text-emerald-400 font-bold">[Group 1] 공유 KV1</span>
+              <div class="flex justify-center gap-1 text-sky-300">
+                <span class="bg-sky-950 px-1.5 py-0.5 rounded border border-sky-500/30">Q2</span>
+                <span class="bg-sky-950 px-1.5 py-0.5 rounded border border-sky-500/30">Q3</span>
+              </div>
+            </div>
+          </div>
+          <p class="text-[10px] text-slate-400 text-center">질문 표현력(4Q)은 유지하고 KV 캐시 메모리 대역폭은 반으로 절약</p>
+        `;
+      } else if (attentionType === 'mqa') {
+        titleEl.innerText = 'MQA 구조 (4 Query : 1 Key/Value)';
+        vramEl.innerText = 'KV VRAM 75% 절약';
+        vramEl.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20';
+        container.innerHTML = `
+          <div class="p-2 rounded bg-slate-900 border border-cyan-500/40 flex flex-col gap-1 text-center text-[10px] font-mono">
+            <span class="text-cyan-400 font-bold">단 1개의 단일 KV 헤드 공유</span>
+            <div class="flex justify-center gap-1.5 text-sky-300">
+              <span class="bg-sky-950 px-2 py-0.5 rounded border border-sky-500/30">Q0</span>
+              <span class="bg-sky-950 px-2 py-0.5 rounded border border-sky-500/30">Q1</span>
+              <span class="bg-sky-950 px-2 py-0.5 rounded border border-sky-500/30">Q2</span>
+              <span class="bg-sky-950 px-2 py-0.5 rounded border border-sky-500/30">Q3</span>
+            </div>
+          </div>
+          <p class="text-[10px] text-slate-400 text-center">모든 Q가 단 1개의 KV 캐시만 읽어 메모리 극대화</p>
+        `;
+      }
+    }
+
+    function renderNextTokenPrediction() {
+      const container = document.getElementById('next-token-distribution');
+      const preds = PRESETS[currentPresetIdx].predictions[currentStep - 1] || [];
+      container.innerHTML = '';
+
+      preds.forEach((item, idx) => {
+        const isTop = idx === 0;
+        const card = document.createElement('div');
+        card.className = `p-2.5 rounded-xl border font-mono-code flex flex-col justify-between ${
+          isTop
+            ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-200 shadow-sm'
+            : 'bg-slate-950/60 border-slate-800 text-slate-400'
+        }`;
+
+        card.innerHTML = `
+          <div class="flex justify-between items-center text-[11px] mb-1">
+            <span class="font-bold truncate text-slate-200">"${item.token}"</span>
+            <span class="font-bold ${isTop ? 'text-emerald-400' : 'text-slate-500'}">${item.p}</span>
+          </div>
+          <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+            <div class="h-full rounded-full ${isTop ? 'bg-emerald-400' : 'bg-slate-600'}" style="width: ${item.p}"></div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // Step Control Actions
+    function nextStep() {
+      if (currentStep < maxSteps) {
+        currentStep++;
+        updateAllViews();
+      } else {
+        pauseAutoPlay();
+      }
+    }
+
+    function prevStep() {
+      if (currentStep > 1) {
+        currentStep--;
+        updateAllViews();
+      }
+    }
+
+    function resetStep() {
+      pauseAutoPlay();
+      currentStep = 1;
+      updateAllViews();
+    }
+
+    function jumpToStep(stepNum) {
+      pauseAutoPlay();
+      currentStep = stepNum;
+      updateAllViews();
+    }
+
+    function loadPreset(idx) {
+      pauseAutoPlay();
+      currentPresetIdx = parseInt(idx, 10);
+      currentStep = 1;
+      updateAllViews();
+    }
+
+    function setAttentionType(type) {
+      attentionType = type;
+      ['mha', 'gqa', 'mqa'].forEach(t => {
+        const btn = document.getElementById(`btn-mode-${t}`);
+        if (t === type) {
+          btn.className = 'px-2.5 py-1 rounded font-medium transition-all bg-emerald-500 text-slate-950 shadow';
+        } else {
+          btn.className = 'px-2.5 py-1 rounded font-medium transition-all text-slate-300 hover:text-white';
+        }
+      });
+      renderHeadArchitecture();
+    }
+
+    // Auto Playback Loop
+    function toggleAutoPlay() {
+      if (isAutoPlaying) {
+        pauseAutoPlay();
+      } else {
+        startAutoPlay();
+      }
+    }
+
+    function startAutoPlay() {
+      if (currentStep >= maxSteps) {
+        currentStep = 1;
+        updateAllViews();
+      }
+      isAutoPlaying = true;
+      document.getElementById('play-icon').setAttribute('data-lucide', 'pause');
+      document.getElementById('play-text').innerText = '일시 정지';
+      lucide.createIcons();
+
+      const getSpeed = () => parseInt(document.getElementById('speed-slider').value, 10);
+
+      const loop = () => {
+        if (!isAutoPlaying) return;
+        if (currentStep < maxSteps) {
+          nextStep();
+          playTimer = setTimeout(loop, getSpeed());
+        } else {
+          pauseAutoPlay();
+        }
+      };
+      playTimer = setTimeout(loop, getSpeed());
+    }
+
+    function pauseAutoPlay() {
+      isAutoPlaying = false;
+      if (playTimer) clearTimeout(playTimer);
+      document.getElementById('play-icon').setAttribute('data-lucide', 'play');
+      document.getElementById('play-text').innerText = '자동 진행';
+      lucide.createIcons();
+    }
+
+    // Speed Slider Listener
+    document.getElementById('speed-slider').addEventListener('input', function(e) {
+      const val = (e.target.value / 1000).toFixed(1) + 's';
+      document.getElementById('speed-label').innerText = val;
+    });
+
+    // Initialize on page load
+    window.onload = function() {
+      updateAllViews();
+      lucide.createIcons();
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="ko" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM 활성화 함수 및 SwiGLU 비주얼라이저</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js for 1D Function & Derivative Plotting -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- KaTeX for Math Equations rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+  <!-- Google Fonts: Inter & Pre-configured Tailwind -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['Fira Code', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.5); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(107, 114, 128, 0.8); }
+  </style>
+</head>
+
+<body class="h-full bg-slate-950 text-slate-100 font-sans flex flex-col antialiased selection:bg-emerald-500/30 selection:text-emerald-200">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-lg shadow-sm">
+          f(x)
+        </div>
+        <div>
+          <h1 class="text-base sm:text-lg font-bold text-slate-100 flex items-center gap-2">
+            LLM 활성화 함수 탐색기
+            <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono">SwiGLU & GLU Variants</span>
+          </h1>
+          <p class="text-xs text-slate-400 hidden sm:block">트랜스포머와 최신 언어 모델의 비선형성 비교 & 분석 도구</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-2">
+        <span class="text-xs text-slate-400 hidden md:inline">LLaMA 3 · Gemma · GPT-4 · Mistral</span>
+        <div class="h-4 w-px bg-slate-700 hidden md:inline"></div>
+        <button id="btn-reset" class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors flex items-center gap-1 border border-slate-700">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          초기화
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
+
+    <!-- Top Tabs & Quick Overview -->
+    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+      <div class="flex flex-wrap gap-2" id="tab-nav">
+        <button data-tab="1d" class="tab-btn px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white shadow-sm flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"/></svg>
+          1D 함수 및 도함수(기울기) 비교
+        </button>
+        <button data-tab="glu" class="tab-btn px-4 py-2 text-sm font-medium rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
+          2D GLU 게이팅 표면 (SwiGLU)
+        </button>
+        <button data-tab="arch" class="tab-btn px-4 py-2 text-sm font-medium rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
+          트랜스포머 FFN 구조 및 파라미터 계산
+        </button>
+      </div>
+      <div class="text-xs text-slate-400 font-mono flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        인터랙티브 파라미터 튜닝 활성화
+      </div>
+    </div>
+
+    <!-- VIEW 1: 1D Functions & Gradients -->
+    <div id="view-1d" class="space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        
+        <!-- Controls Column -->
+        <div class="lg:col-span-1 space-y-4">
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
+            <h3 class="text-sm font-semibold text-slate-200 border-b border-slate-800 pb-2 flex items-center justify-between">
+              <span>함수 선택 (다중 선택)</span>
+              <button id="btn-select-all" class="text-xs text-emerald-400 hover:underline">모두 선택</button>
+            </h3>
+
+            <div class="space-y-2.5 text-xs">
+              <label class="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded hover:bg-slate-800/60">
+                <input type="checkbox" class="fn-toggle rounded border-slate-700 text-emerald-500 focus:ring-0" value="swish" checked data-color="#10b981">
+                <span class="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span>
+                <span class="font-medium text-slate-200">Swish / SiLU (LLaMA)</span>
+              </label>
+              <label class="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded hover:bg-slate-800/60">
+                <input type="checkbox" class="fn-toggle rounded border-slate-700 text-blue-500 focus:ring-0" value="gelu" checked data-color="#3b82f6">
+                <span class="w-3 h-3 rounded-full bg-blue-500 inline-block"></span>
+                <span class="font-medium text-slate-200">GELU (GPT-3, BERT)</span>
+              </label>
+              <label class="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded hover:bg-slate-800/60">
+                <input type="checkbox" class="fn-toggle rounded border-slate-700 text-amber-500 focus:ring-0" value="relu" checked data-color="#f59e0b">
+                <span class="w-3 h-3 rounded-full bg-amber-500 inline-block"></span>
+                <span class="font-medium text-slate-200">ReLU (Classic Transformer)</span>
+              </label>
+              <label class="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded hover:bg-slate-800/60">
+                <input type="checkbox" class="fn-toggle rounded border-slate-700 text-purple-500 focus:ring-0" value="sigmoid" data-color="#a855f7">
+                <span class="w-3 h-3 rounded-full bg-purple-500 inline-block"></span>
+                <span class="font-medium text-slate-200">Sigmoid $\sigma(x)$</span>
+              </label>
+              <label class="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded hover:bg-slate-800/60">
+                <input type="checkbox" class="fn-toggle rounded border-slate-700 text-pink-500 focus:ring-0" value="tanh" data-color="#ec4899">
+                <span class="w-3 h-3 rounded-full bg-pink-500 inline-block"></span>
+                <span class="font-medium text-slate-200">Tanh $\tanh(x)$</span>
+              </label>
+              <label class="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded hover:bg-slate-800/60">
+                <input type="checkbox" class="fn-toggle rounded border-slate-700 text-cyan-500 focus:ring-0" value="leaky_relu" data-color="#06b6d4">
+                <span class="w-3 h-3 rounded-full bg-cyan-500 inline-block"></span>
+                <span class="font-medium text-slate-200">Leaky ReLU</span>
+              </label>
+            </div>
+
+            <!-- Parameters sliders -->
+            <div class="pt-4 border-t border-slate-800 space-y-4">
+              <div>
+                <div class="flex justify-between text-xs text-slate-400 mb-1">
+                  <span>Swish $\beta$ 값:</span>
+                  <span id="beta-val" class="font-mono text-emerald-400 font-bold">1.0</span>
+                </div>
+                <input type="range" id="beta-slider" min="0.1" max="3.0" step="0.1" value="1.0" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+                <p class="text-[10px] text-slate-500 mt-1">$\beta=1$일 때 SiLU(Sigmoid Linear Unit)</p>
+              </div>
+
+              <div>
+                <div class="flex justify-between text-xs text-slate-400 mb-1">
+                  <span>X 축 범위:</span>
+                  <span id="range-val" class="font-mono text-slate-300">[-6, 6]</span>
+                </div>
+                <input type="range" id="range-slider" min="3" max="10" step="1" value="6" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-slate-400">
+              </div>
+            </div>
+
+            <!-- Inspector tooltip data -->
+            <div class="pt-3 border-t border-slate-800">
+              <div class="text-xs font-semibold text-slate-400 mb-1">커서 위치 연산 값 ($x = <span id="hover-x" class="font-mono text-emerald-400">0.00</span>$)</div>
+              <div id="hover-stats" class="space-y-1 font-mono text-[11px] text-slate-300">
+                <!-- Dynamically populated -->
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Charts Column -->
+        <div class="lg:col-span-3 space-y-6">
+          <!-- Activation Value Chart -->
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-sm">
+            <div class="flex items-center justify-between mb-3">
+              <div>
+                <h4 class="text-sm font-semibold text-slate-200">활성화 함수 출력값: $f(x)$</h4>
+                <p class="text-xs text-slate-400">음수 영역에서의 비단조성(Non-monotonicity) 및 포화(Saturation) 특성 비교</p>
+              </div>
+              <span class="text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-300 font-mono">Output Value</span>
+            </div>
+            <div class="relative h-64 sm:h-72 w-full">
+              <canvas id="chart-fn"></canvas>
+            </div>
+          </div>
+
+          <!-- Derivative Chart -->
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-sm">
+            <div class="flex items-center justify-between mb-3">
+              <div>
+                <h4 class="text-sm font-semibold text-slate-200">도함수 및 기울기 흐름: $f'(x) = \frac{df}{dx}$</h4>
+                <p class="text-xs text-slate-400">역전파 시 기울기 소실(Vanishing) 및 불연속 충격(Dying ReLU) 비교</p>
+              </div>
+              <span class="text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-300 font-mono">Gradient / Derivative</span>
+            </div>
+            <div class="relative h-56 sm:h-64 w-full">
+              <canvas id="chart-grad"></canvas>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- VIEW 2: 2D GLU Gating Surface -->
+    <div id="view-glu" class="hidden space-y-6">
+      <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-6 shadow-sm space-y-6">
+        <div class="max-w-3xl">
+          <h3 class="text-base font-bold text-slate-100 flex items-center gap-2">
+            게이팅 메커니즘 (Gated Linear Units)의 2차 상호작용
+          </h3>
+          <p class="text-xs sm:text-sm text-slate-400 mt-1">
+            SwiGLU는 게이트 경로 $a = x W_{gate}$와 정보 통과 경로 $b = x W_{up}$ 두 입력을 받아 $\text{Swish}(a) \times b$ 형태로 곱합니다.
+            아래 히트맵과 단면도를 통해 게이트 $a$가 $b$의 흐름을 어떻게 동적으로 조절하는지 확인하세요.
+          </p>
+        </div>
+
+        <!-- Controls for 2D -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-lg bg-slate-950 border border-slate-800">
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">GLU 변형 선택:</label>
+            <select id="glu-type-select" class="w-full text-xs bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-emerald-500">
+              <option value="swiglu">SwiGLU: Swish(a) · b (LLaMA, Mistral)</option>
+              <option value="geglu">GeGLU: GELU(a) · b (Gemma, PaLM)</option>
+              <option value="reglu">ReGLU: ReLU(a) · b</option>
+              <option value="bilinear">Bilinear: a · b (선형 게이트)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">고정 신호 $b$ (Up Projection) 값:</label>
+            <div class="flex items-center gap-3">
+              <input type="range" id="glu-b-slider" min="-3" max="3" step="0.2" value="1.0" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+              <span id="glu-b-val" class="text-xs font-mono font-bold text-emerald-400 w-8">1.0</span>
+            </div>
+            <span class="text-[10px] text-slate-500">$b$가 고정되었을 때 $a$(Gate)에 따른 단면 변화</span>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">히트맵 해상도 / 범위:</label>
+            <div class="flex items-center gap-2 text-xs text-slate-300 font-mono">
+              <span class="px-2 py-1 bg-slate-900 rounded border border-slate-800">[-4.0 ~ +4.0]</span>
+              <span class="text-slate-500">60x60 Grid</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Heatmap & Cross section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          
+          <!-- Canvas Heatmap Simulation -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col items-center">
+            <div class="w-full flex justify-between items-center mb-2">
+              <span class="text-xs font-semibold text-slate-300">2D 활성화 지형도: Output $= \text{GLU}(a, b)$</span>
+              <span class="text-[11px] font-mono text-slate-400">X: Gate($a$), Y: Up($b$)</span>
+            </div>
+            <div class="relative w-full max-w-[380px] aspect-square">
+              <canvas id="glu-heatmap" class="w-full h-full rounded-lg border border-slate-800 cursor-crosshair"></canvas>
+              <div id="heatmap-indicator" class="absolute w-3 h-3 border-2 border-white rounded-full pointer-events-none -translate-x-1/2 -translate-y-1/2 hidden shadow-lg"></div>
+            </div>
+            <div class="w-full flex items-center justify-between mt-3 text-[11px] text-slate-400">
+              <span class="flex items-center gap-1.5"><span class="w-3 h-3 bg-blue-600 rounded"></span> 음수 억제 (Negative)</span>
+              <span class="flex items-center gap-1.5"><span class="w-3 h-3 bg-slate-800 rounded"></span> 0 (Zero)</span>
+              <span class="flex items-center gap-1.5"><span class="w-3 h-3 bg-emerald-500 rounded"></span> 양수 증폭 (Positive)</span>
+            </div>
+          </div>
+
+          <!-- Cross-Section Chart -->
+          <div class="space-y-4">
+            <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-semibold text-slate-300">현재 $b = <span id="cross-b-display" class="text-emerald-400 font-mono">1.0</span>일 때 단면 곡선</span>
+                <span class="text-[11px] font-mono text-slate-400">$f(a) \text{ at fixed } b$</span>
+              </div>
+              <div class="relative h-56 w-full">
+                <canvas id="chart-glu-cross"></canvas>
+              </div>
+            </div>
+
+            <div class="bg-slate-900/50 border border-slate-800 p-4 rounded-xl text-xs space-y-2">
+              <div class="font-semibold text-slate-200">🔍 게이팅의 핵심 동작 원리</div>
+              <p class="text-slate-400 leading-relaxed">
+                1. <strong>$a \gg 0$ (Gate Open):</strong> $\text{Swish}(a) \approx a$가 되어 신호 $b$가 강하게 통과하고 2차 상호작용($a \cdot b$)이 발생합니다.<br>
+                2. <strong>$a \ll 0$ (Gate Closed):</strong> $\text{Swish}(a) \approx 0$으로 수렴하여 $b$의 어떤 값이 들어와도 출력을 차단(0)합니다.<br>
+                3. <strong>$a \approx 0$ (Soft Transition):</strong> 불연속 없이 부드럽게 필터링 비율을 제어합니다.
+              </p>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+    <!-- VIEW 3: Transformer FFN Architectures & Specs -->
+    <div id="view-arch" class="hidden space-y-6">
+      
+      <!-- Comparison Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        <!-- Standard ReLU / GELU FFN -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 space-y-4">
+          <div class="flex justify-between items-start">
+            <div>
+              <span class="text-xs px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/30 font-mono">Standard FFN</span>
+              <h4 class="text-base font-bold text-slate-200 mt-1">2-Matrix 구조 (GELU / ReLU)</h4>
+            </div>
+            <span class="text-xs font-mono text-slate-400">GPT-3, BERT</span>
+          </div>
+
+          <div class="p-3 bg-slate-950 rounded-lg border border-slate-800 font-mono text-xs text-slate-300">
+            $$\text{FFN}(x) = \text{GELU}(x W_{up} + b_1) W_{down} + b_2$$
+          </div>
+
+          <!-- Mini Architecture Flow -->
+          <div class="space-y-2 text-xs">
+            <div class="flex items-center justify-between p-2 rounded bg-slate-800/60 border border-slate-700/50">
+              <span class="text-slate-400">입력 차원 ($d_{model}$)</span>
+              <span class="font-mono text-slate-200 font-medium">4,096</span>
+            </div>
+            <div class="text-center text-slate-500">↓ $W_{up} : d_{model} \rightarrow 4d_{model}$ (16,384)</div>
+            <div class="flex items-center justify-between p-2 rounded bg-blue-500/10 border border-blue-500/30">
+              <span class="text-blue-300">Nonlinear: GELU($\cdot$)</span>
+              <span class="font-mono text-blue-200">Point-wise</span>
+            </div>
+            <div class="text-center text-slate-500">↓ $W_{down} : 4d_{model} \rightarrow d_{model}$ (4,096)</div>
+            <div class="flex items-center justify-between p-2 rounded bg-slate-800/60 border border-slate-700/50">
+              <span class="text-slate-400">총 파라미터 계수</span>
+              <span class="font-mono text-blue-400 font-bold">$2 \times (d \times 4d) = \mathbf{8d^2}$</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SwiGLU 3-Matrix FFN -->
+        <div class="bg-slate-900/90 border border-emerald-500/30 rounded-xl p-5 space-y-4 relative overflow-hidden">
+          <div class="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none"></div>
+          
+          <div class="flex justify-between items-start">
+            <div>
+              <span class="text-xs px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-mono">Modern Standard (GLU)</span>
+              <h4 class="text-base font-bold text-slate-200 mt-1">3-Matrix 구조 (SwiGLU)</h4>
+            </div>
+            <span class="text-xs font-mono text-emerald-400 font-medium">LLaMA 3, Mistral, PaLM</span>
+          </div>
+
+          <div class="p-3 bg-slate-950 rounded-lg border border-slate-800 font-mono text-xs text-slate-300">
+            $$\text{SwiGLU}(x) = \left( \text{Swish}(x W_{gate}) \otimes x W_{up} \right) W_{down}$$
+          </div>
+
+          <!-- Mini Architecture Flow -->
+          <div class="space-y-2 text-xs">
+            <div class="flex items-center justify-between p-2 rounded bg-slate-800/60 border border-slate-700/50">
+              <span class="text-slate-400">입력 차원 ($d_{model}$)</span>
+              <span class="font-mono text-slate-200 font-medium">4,096</span>
+            </div>
+            <div class="text-center text-emerald-400/80">↓ Split: $W_{gate}$ (Gate) & $W_{up}$ (Up) ($\approx \frac{8}{3}d_{model}$)</div>
+            <div class="flex items-center justify-between p-2 rounded bg-emerald-500/10 border border-emerald-500/30">
+              <span class="text-emerald-300">Bilinear: $\text{Swish}(a) \otimes b$</span>
+              <span class="font-mono text-emerald-200">Gated Filter</span>
+            </div>
+            <div class="text-center text-emerald-400/80">↓ $W_{down} : \frac{8}{3}d_{model} \rightarrow d_{model}$</div>
+            <div class="flex items-center justify-between p-2 rounded bg-slate-800/60 border border-slate-700/50">
+              <span class="text-slate-400">동일 FLOPs 기준 파라미터</span>
+              <span class="font-mono text-emerald-400 font-bold">$3 \times (d \times \frac{8}{3}d) = \mathbf{8d^2}$</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Live FFN Parameter & KV Cache Calculator -->
+      <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-6 shadow-sm space-y-5">
+        <div class="border-b border-slate-800 pb-3 flex flex-wrap justify-between items-center gap-2">
+          <div>
+            <h4 class="text-sm font-bold text-slate-200">실시간 FFN 파라미터 및 KV 캐시 계산기</h4>
+            <p class="text-xs text-slate-400">모델 설정값에 따른 FFN 가중치 비중과 KV 캐시 크기를 즉시 계산합니다.</p>
+          </div>
+          <!-- Preset buttons -->
+          <div class="flex gap-2">
+            <button class="preset-btn text-xs px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-300" data-model="llama3_8b">LLaMA 3 (8B)</button>
+            <button class="preset-btn text-xs px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-300" data-model="llama2_70b">LLaMA 2 (70B)</button>
+            <button class="preset-btn text-xs px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-300" data-model="gpt3_175b">GPT-3 (175B)</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+          <div>
+            <label class="block text-slate-400 mb-1">임베딩 차원 ($d_{model}$):</label>
+            <input type="number" id="calc-dim" value="4096" step="256" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 font-mono text-slate-200 focus:border-emerald-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">레이어 수 ($n_{layers}$):</label>
+            <input type="number" id="calc-layers" value="32" step="1" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 font-mono text-slate-200 focus:border-emerald-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">FFN 중간 차원 ($d_{ffn}$):</label>
+            <input type="number" id="calc-ffn" value="14336" step="256" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 font-mono text-slate-200 focus:border-emerald-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">KV Head 수 (GQA):</label>
+            <input type="number" id="calc-kv-heads" value="8" step="1" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 font-mono text-slate-200 focus:border-emerald-500 focus:outline-none">
+          </div>
+        </div>
+
+        <!-- Calculated Stats Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+          <div class="p-4 rounded-xl bg-slate-950 border border-slate-800">
+            <span class="text-[11px] text-slate-400 font-medium">레이어당 FFN 가중치 비율</span>
+            <div class="text-xl font-bold text-emerald-400 font-mono mt-1" id="stat-ffn-ratio">72.4%</div>
+            <span class="text-[10px] text-slate-500">FFN 파라미터가 전체 가중치를 지배</span>
+          </div>
+
+          <div class="p-4 rounded-xl bg-slate-950 border border-slate-800">
+            <span class="text-[11px] text-slate-400 font-medium">토큰 1개당 누적 KV 캐시 크기</span>
+            <div class="text-xl font-bold text-blue-400 font-mono mt-1" id="stat-kv-token">128 KB</div>
+            <span class="text-[10px] text-slate-500">FP16 기준 (FFN은 캐시 = 0)</span>
+          </div>
+
+          <div class="p-4 rounded-xl bg-slate-950 border border-slate-800">
+            <span class="text-[11px] text-slate-400 font-medium">4K Context 32 Batch 시 KV 총량</span>
+            <div class="text-xl font-bold text-amber-400 font-mono mt-1" id="stat-kv-total">16.0 GB</div>
+            <span class="text-[10px] text-slate-500">VRAM 동적 할당 메모리</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Detailed Mathematical Formulas Table -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
+      <h3 class="text-sm font-semibold text-slate-200 border-b border-slate-800 pb-2">
+        주요 활성화 함수 수식 및 특성 레퍼런스
+      </h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs text-slate-300">
+          <thead class="text-[11px] text-slate-400 bg-slate-950 uppercase border-b border-slate-800 font-mono">
+            <tr>
+              <th class="p-3">함수명</th>
+              <th class="p-3">정의 수식 $f(x)$</th>
+              <th class="p-3">도함수 $f'(x)$</th>
+              <th class="p-3">주요 특징 및 LLM 활용</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800/60 font-sans">
+            <tr class="hover:bg-slate-800/30">
+              <td class="p-3 font-semibold text-emerald-400">Swish / SiLU</td>
+              <td class="p-3 font-mono">$$x \cdot \sigma(\beta x) = \frac{x}{1 + e^{-\beta x}}$$</td>
+              <td class="p-3 font-mono">$$\beta f(x) + \sigma(\beta x)(1 - \beta f(x))$$</td>
+              <td class="p-3 text-slate-400">부드러운 비단조성, 음수 영역 미세 통과로 죽은 뉴런 방지 (LLaMA, Mistral)</td>
+            </tr>
+            <tr class="hover:bg-slate-800/30">
+              <td class="p-3 font-semibold text-blue-400">GELU</td>
+              <td class="p-3 font-mono">$$x \cdot \Phi(x) \approx 0.5x(1 + \tanh(\sqrt{2/\pi}(x + 0.044715x^3)))$$</td>
+              <td class="p-3 font-mono">$$\Phi(x) + x \cdot \phi(x)$$</td>
+              <td class="p-3 text-slate-400">확률적 정규분포 게이팅 기반의 부드러운 비선형성 (GPT-3, BERT)</td>
+            </tr>
+            <tr class="hover:bg-slate-800/30">
+              <td class="p-3 font-semibold text-amber-400">ReLU</td>
+              <td class="p-3 font-mono">$$\max(0, x)$$</td>
+              <td class="p-3 font-mono">$$1 \text{ if } x > 0 \text{ else } 0$$</td>
+              <td class="p-3 text-slate-400">가장 빠른 연산 속도, 0 이하에서 기울기 0으로 Dying ReLU 발생 가능</td>
+            </tr>
+            <tr class="hover:bg-slate-800/30">
+              <td class="p-3 font-semibold text-purple-400">SwiGLU</td>
+              <td class="p-3 font-mono">$$\text{Swish}(x W_{gate}) \otimes (x W_{up})$$</td>
+              <td class="p-3 font-mono">$$\text{Bilinear Gradient}$$</td>
+              <td class="p-3 text-slate-400">2차 상호작용 및 문맥 적응형 동적 필터링으로 현대 LLM의 표준</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    // Mathematical Functions Implementation
+    const MathFns = {
+      sigmoid: (x) => 1 / (1 + Math.exp(-x)),
+      swish: (x, beta = 1.0) => x * (1 / (1 + Math.exp(-beta * x))),
+      gelu: (x) => {
+        // Fast approximation
+        return 0.5 * x * (1 + Math.tanh(Math.sqrt(2 / Math.PI) * (x + 0.044715 * Math.pow(x, 3))));
+      },
+      relu: (x) => Math.max(0, x),
+      leaky_relu: (x, alpha = 0.1) => (x >= 0 ? x : alpha * x),
+      tanh: (x) => Math.tanh(x),
+
+      // Numerical derivatives using central difference
+      derivative: function(fn, x, eps = 1e-4) {
+        return (fn(x + eps) - fn(x - eps)) / (2 * eps);
+      }
+    };
+
+    // State Variables
+    let currentTab = '1d';
+    let rangeX = 6;
+    let betaVal = 1.0;
+    let activeFunctions = ['swish', 'gelu', 'relu'];
+    let gluType = 'swiglu';
+    let fixedB = 1.0;
+
+    let chartFn = null;
+    let chartGrad = null;
+    let chartCross = null;
+
+    const fnMeta = {
+      swish: { name: 'Swish (SiLU)', color: '#10b981', fn: (x) => MathFns.swish(x, betaVal) },
+      gelu: { name: 'GELU', color: '#3b82f6', fn: MathFns.gelu },
+      relu: { name: 'ReLU', color: '#f59e0b', fn: MathFns.relu },
+      sigmoid: { name: 'Sigmoid', color: '#a855f7', fn: MathFns.sigmoid },
+      tanh: { name: 'Tanh', color: '#ec4899', fn: MathFns.tanh },
+      leaky_relu: { name: 'Leaky ReLU', color: '#06b6d4', fn: MathFns.leaky_relu }
+    };
+
+    function generate1DData() {
+      const labels = [];
+      const steps = 240;
+      const stepSize = (2 * rangeX) / steps;
+      
+      for (let i = 0; i <= steps; i++) {
+        labels.push(parseFloat((-rangeX + i * stepSize).toFixed(3)));
+      }
+
+      const datasetsFn = [];
+      const datasetsGrad = [];
+
+      activeFunctions.forEach((key) => {
+        const meta = fnMeta[key];
+        const fn = key === 'swish' ? ((x) => MathFns.swish(x, betaVal)) : meta.fn;
+
+        const dataY = labels.map(x => fn(x));
+        const dataGrad = labels.map(x => MathFns.derivative(fn, x));
+
+        datasetsFn.push({
+          label: meta.name,
+          data: dataY,
+          borderColor: meta.color,
+          backgroundColor: meta.color + '15',
+          borderWidth: 2.5,
+          pointRadius: 0,
+          tension: 0.15
+        });
+
+        datasetsGrad.push({
+          label: meta.name + " '",
+          data: dataGrad,
+          borderColor: meta.color,
+          borderDash: [4, 4],
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.15
+        });
+      });
+
+      return { labels, datasetsFn, datasetsGrad };
+    }
+
+    function initCharts() {
+      const { labels, datasetsFn, datasetsGrad } = generate1DData();
+
+      const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#94a3b8', font: { family: 'Inter', size: 11 } } },
+          tooltip: {
+            backgroundColor: '#0f172a',
+            borderColor: '#334155',
+            borderWidth: 1,
+            titleColor: '#f1f5f9',
+            bodyColor: '#cbd5e1',
+            titleFont: { family: 'Fira Code', size: 11 },
+            bodyFont: { family: 'Fira Code', size: 11 }
+          }
+        },
+        scales: {
+          x: {
+            type: 'linear',
+            min: -rangeX,
+            max: rangeX,
+            grid: { color: '#1e293b' },
+            ticks: { color: '#64748b', font: { family: 'Fira Code', size: 10 } }
+          },
+          y: {
+            grid: { color: '#1e293b' },
+            ticks: { color: '#64748b', font: { family: 'Fira Code', size: 10 } }
+          }
+        }
+      };
+
+      const ctxFn = document.getElementById('chart-fn').getContext('2d');
+      chartFn = new Chart(ctxFn, {
+        type: 'line',
+        data: { labels, datasets: datasetsFn },
+        options: {
+          ...commonOptions,
+          plugins: {
+            ...commonOptions.plugins,
+            tooltip: {
+              ...commonOptions.plugins.tooltip,
+              callbacks: {
+                title: (items) => `x = ${items[0].parsed.x.toFixed(2)}`
+              }
+            }
+          }
+        }
+      });
+
+      const ctxGrad = document.getElementById('chart-grad').getContext('2d');
+      chartGrad = new Chart(ctxGrad, {
+        type: 'line',
+        data: { labels, datasets: datasetsGrad },
+        options: commonOptions
+      });
+
+      // Cross-section Chart for GLU
+      const ctxCross = document.getElementById('chart-glu-cross').getContext('2d');
+      chartCross = new Chart(ctxCross, {
+        type: 'line',
+        data: { labels: [], datasets: [] },
+        options: {
+          ...commonOptions,
+          scales: {
+            ...commonOptions.scales,
+            x: { ...commonOptions.scales.x, min: -4, max: 4 }
+          }
+        }
+      });
+
+      updateCrossSectionChart();
+    }
+
+    function update1DCharts() {
+      if (!chartFn || !chartGrad) return;
+      const { labels, datasetsFn, datasetsGrad } = generate1DData();
+      
+      [chartFn, chartGrad].forEach(chart => {
+        chart.options.scales.x.min = -rangeX;
+        chart.options.scales.x.max = rangeX;
+      });
+
+      chartFn.data.labels = labels;
+      chartFn.data.datasets = datasetsFn;
+      chartFn.update('none');
+
+      chartGrad.data.labels = labels;
+      chartGrad.data.datasets = datasetsGrad;
+      chartGrad.update('none');
+
+      updateHoverStats(0);
+    }
+
+    function evaluateGLU(type, a, b) {
+      if (type === 'swiglu') return MathFns.swish(a, 1.0) * b;
+      if (type === 'geglu') return MathFns.gelu(a) * b;
+      if (type === 'reglu') return MathFns.relu(a) * b;
+      if (type === 'bilinear') return a * b;
+      return a * b;
+    }
+
+    function renderGLUHeatmap() {
+      const canvas = document.getElementById('glu-heatmap');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const size = 180;
+      canvas.width = size;
+      canvas.height = size;
+
+      const imgData = ctx.createImageData(size, size);
+      const data = imgData.data;
+
+      const maxRange = 4.0;
+
+      for (let py = 0; py < size; py++) {
+        for (let px = 0; px < size; px++) {
+          // Coordinate mapping: px -> a (-4 ~ +4), py -> b (+4 ~ -4)
+          const a = -maxRange + (px / size) * (2 * maxRange);
+          const b = maxRange - (py / size) * (2 * maxRange);
+
+          const val = evaluateGLU(gluType, a, b);
+
+          // Color calculation (Normalize between [-4, 4])
+          const idx = (py * size + px) * 4;
+          const clamped = Math.max(-4, Math.min(4, val));
+          
+          if (clamped >= 0) {
+            // Positive -> Emerald Green gradient
+            const intensity = clamped / 4.0;
+            data[idx] = Math.floor(16 + intensity * (16 - 16));     // R
+            data[idx + 1] = Math.floor(24 + intensity * (185 - 24)); // G
+            data[idx + 2] = Math.floor(39 + intensity * (129 - 39)); // B
+            data[idx + 3] = 255;
+          } else {
+            // Negative -> Blue / Purple gradient
+            const intensity = Math.abs(clamped) / 4.0;
+            data[idx] = Math.floor(30 + intensity * (59 - 30));     // R
+            data[idx + 1] = Math.floor(41 + intensity * (130 - 41)); // G
+            data[idx + 2] = Math.floor(59 + intensity * (246 - 59)); // B
+            data[idx + 3] = 255;
+          }
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+
+      // Draw Grid / Axis Lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(size / 2, 0); ctx.lineTo(size / 2, size);
+      ctx.moveTo(0, size / 2); ctx.lineTo(size, size / 2);
+      ctx.stroke();
+    }
+
+    function updateCrossSectionChart() {
+      if (!chartCross) return;
+      const labels = [];
+      const steps = 120;
+      const maxRange = 4.0;
+      const stepSize = (2 * maxRange) / steps;
+
+      for (let i = 0; i <= steps; i++) {
+        labels.push(parseFloat((-maxRange + i * stepSize).toFixed(3)));
+      }
+
+      const dataCross = labels.map(a => evaluateGLU(gluType, a, fixedB));
+
+      chartCross.data.labels = labels;
+      chartCross.data.datasets = [{
+        label: `${gluType.toUpperCase()} (b = ${fixedB})`,
+        data: dataCross,
+        borderColor: '#10b981',
+        backgroundColor: '#10b98120',
+        fill: true,
+        borderWidth: 2.5,
+        pointRadius: 0
+      }];
+      chartCross.update('none');
+    }
+
+    function recalculateParameters() {
+      const d_model = parseInt(document.getElementById('calc-dim').value) || 4096;
+      const n_layers = parseInt(document.getElementById('calc-layers').value) || 32;
+      const d_ffn = parseInt(document.getElementById('calc-ffn').value) || 14336;
+      const n_kv_heads = parseInt(document.getElementById('calc-kv-heads').value) || 8;
+
+      // Single Block Calculations
+      // Attention: Wq, Wk, Wv, Wo (Assuming GQA head dim = 128)
+      const head_dim = 128;
+      const q_dim = d_model;
+      const kv_dim = n_kv_heads * head_dim;
+      const attn_params = (d_model * q_dim) + (2 * d_model * kv_dim) + (d_model * d_model);
+
+      // SwiGLU FFN: Wgate, Wup, Wdown
+      const ffn_params = 3 * (d_model * d_ffn);
+      const total_layer_params = attn_params + ffn_params;
+
+      const ffnRatio = ((ffn_params / total_layer_params) * 100).toFixed(1);
+      document.getElementById('stat-ffn-ratio').textContent = `${ffnRatio}%`;
+
+      // KV Cache per Token: 2 * n_layers * kv_dim * 2 Bytes (FP16)
+      const bytesPerToken = 2 * n_layers * kv_dim * 2;
+      const kbPerToken = (bytesPerToken / 1024).toFixed(1);
+      document.getElementById('stat-kv-token').textContent = `${kbPerToken} KB`;
+
+      // Total for 4096 context and 32 batch
+      const totalKVBytes = bytesPerToken * 4096 * 32;
+      const totalKVGB = (totalKVBytes / (1024 * 1024 * 1024)).toFixed(1);
+      document.getElementById('stat-kv-total').textContent = `${totalKVGB} GB`;
+    }
+
+    function updateHoverStats(x) {
+      document.getElementById('hover-x').textContent = x.toFixed(2);
+      const container = document.getElementById('hover-stats');
+      container.innerHTML = '';
+
+      activeFunctions.forEach(key => {
+        const meta = fnMeta[key];
+        const fn = key === 'swish' ? ((val) => MathFns.swish(val, betaVal)) : meta.fn;
+        const val = fn(x);
+        const grad = MathFns.derivative(fn, x);
+
+        const row = document.createElement('div');
+        row.className = 'flex justify-between items-center';
+        row.innerHTML = `
+          <span style="color: ${meta.color}">${meta.name}:</span>
+          <span>f: ${val.toFixed(3)} | f': ${grad.toFixed(3)}</span>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      initCharts();
+      renderGLUHeatmap();
+      recalculateParameters();
+
+      // Math Rendering via KaTeX Auto-render
+      if (window.renderMathInElement) {
+        renderMathInElement(document.body, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false }
+          ]
+        });
+      }
+
+      // Tab Switching
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tab = btn.getAttribute('data-tab');
+          currentTab = tab;
+
+          // Update Button styles
+          document.querySelectorAll('.tab-btn').forEach(b => {
+            b.className = 'tab-btn px-4 py-2 text-sm font-medium rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 flex items-center gap-2';
+          });
+          btn.className = 'tab-btn px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white shadow-sm flex items-center gap-2';
+
+          // Toggle View containers
+          document.getElementById('view-1d').classList.toggle('hidden', tab !== '1d');
+          document.getElementById('view-glu').classList.toggle('hidden', tab !== 'glu');
+          document.getElementById('view-arch').classList.toggle('hidden', tab !== 'arch');
+
+          if (tab === 'glu') {
+            renderGLUHeatmap();
+            updateCrossSectionChart();
+          }
+        });
+      });
+
+      // Function Toggles
+      document.querySelectorAll('.fn-toggle').forEach(input => {
+        input.addEventListener('change', () => {
+          activeFunctions = Array.from(document.querySelectorAll('.fn-toggle:checked')).map(cb => cb.value);
+          update1DCharts();
+        });
+      });
+
+      // Select All Button
+      document.getElementById('btn-select-all').addEventListener('click', () => {
+        const allChecked = activeFunctions.length === Object.keys(fnMeta).length;
+        document.querySelectorAll('.fn-toggle').forEach(cb => cb.checked = !allChecked);
+        activeFunctions = !allChecked ? Object.keys(fnMeta) : [];
+        update1DCharts();
+      });
+
+      // Beta Slider
+      const betaSlider = document.getElementById('beta-slider');
+      betaSlider.addEventListener('input', (e) => {
+        betaVal = parseFloat(e.target.value);
+        document.getElementById('beta-val').textContent = betaVal.toFixed(1);
+        update1DCharts();
+      });
+
+      // Range Slider
+      const rangeSlider = document.getElementById('range-slider');
+      rangeSlider.addEventListener('input', (e) => {
+        rangeX = parseInt(e.target.value);
+        document.getElementById('range-val').textContent = `[-${rangeX}, ${rangeX}]`;
+        update1DCharts();
+      });
+
+      // GLU Variant Select
+      document.getElementById('glu-type-select').addEventListener('change', (e) => {
+        gluType = e.target.value;
+        renderGLUHeatmap();
+        updateCrossSectionChart();
+      });
+
+      // GLU B Slider
+      const bSlider = document.getElementById('glu-b-slider');
+      bSlider.addEventListener('input', (e) => {
+        fixedB = parseFloat(e.target.value);
+        document.getElementById('glu-b-val').textContent = fixedB.toFixed(1);
+        document.getElementById('cross-b-display').textContent = fixedB.toFixed(1);
+        updateCrossSectionChart();
+      });
+
+      // Calculator Inputs
+      ['calc-dim', 'calc-layers', 'calc-ffn', 'calc-kv-heads'].forEach(id => {
+        document.getElementById(id).addEventListener('input', recalculateParameters);
+      });
+
+      // Presets for Calculator
+      document.querySelectorAll('.preset-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const model = btn.getAttribute('data-model');
+          if (model === 'llama3_8b') {
+            document.getElementById('calc-dim').value = 4096;
+            document.getElementById('calc-layers').value = 32;
+            document.getElementById('calc-ffn').value = 14336;
+            document.getElementById('calc-kv-heads').value = 8;
+          } else if (model === 'llama2_70b') {
+            document.getElementById('calc-dim').value = 8192;
+            document.getElementById('calc-layers').value = 80;
+            document.getElementById('calc-ffn').value = 28672;
+            document.getElementById('calc-kv-heads').value = 8;
+          } else if (model === 'gpt3_175b') {
+            document.getElementById('calc-dim').value = 12288;
+            document.getElementById('calc-layers').value = 96;
+            document.getElementById('calc-ffn').value = 49152;
+            document.getElementById('calc-kv-heads').value = 96; // Standard MHA
+          }
+          recalculateParameters();
+        });
+      });
+
+      // Reset Button
+      document.getElementById('btn-reset').addEventListener('click', () => {
+        betaSlider.value = 1.0;
+        betaVal = 1.0;
+        document.getElementById('beta-val').textContent = '1.0';
+
+        rangeSlider.value = 6;
+        rangeX = 6;
+        document.getElementById('range-val').textContent = '[-6, 6]';
+
+        document.querySelectorAll('.fn-toggle').forEach(cb => {
+          cb.checked = ['swish', 'gelu', 'relu'].includes(cb.value);
+        });
+        activeFunctions = ['swish', 'gelu', 'relu'];
+
+        update1DCharts();
+      });
+
+    });
+  </script>
+</body>
+</html>
